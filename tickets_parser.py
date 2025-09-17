@@ -196,22 +196,40 @@ def is_related_label(s: str) -> bool:
 def extract_title_after_urgency(cleaned: str) -> str:
     lines = cleaned.splitlines()
     td = find_line_idx(lines, lambda ln: ln.strip().lower().startswith("ticket details"), 0, 300)
-    start = (td + 1) if td is not None else 0
+    idx = (td + 1) if td is not None else 0
 
-    urg = find_line_idx(lines, lambda ln: re.match(r"^\s*Urgency", ln.strip(), re.I), start, 200)
-    if urg is None:
-        return ""
+    skip_next = False
+    while idx < len(lines):
+        raw = lines[idx]
+        idx += 1
+        s = raw.strip()
+        if not s:
+            continue
 
-    i = urg + 2  # saltar "Urgency:" y su valor
+        if skip_next:
+            skip_next = False
+            continue
 
-    if i < len(lines) and is_related_label(lines[i]):
-        i += 2
+        # Saltar bloques de "Urgency" que aparecen antes del título
+        if re.match(r"^\s*Urgency", s, re.I):
+            skip_next = True  # su valor está en la siguiente línea
+            continue
 
-    while i < len(lines):
-        s = lines[i].strip()
-        if s and not TS_LINE_RE.search(s):
-            return s
-        i += 1
+        # Saltar etiquetas de cliente relacionado y su valor
+        if is_related_label(raw):
+            skip_next = True
+            continue
+
+        # Ignorar líneas que parezcan etiquetas del encabezado u otros campos
+        if LABELY.match(s):
+            continue
+
+        # Ignorar líneas que en realidad son un timestamp de la conversación
+        if TS_LINE_RE.search(s):
+            continue
+
+        return s
+
     return ""
 
 def is_auto(author: str, body: str) -> bool:
@@ -296,7 +314,9 @@ def parse_pdf_timestamp(s: str, now: datetime, tz: ZoneInfo) -> Optional[datetim
     if not candidates:
         return None
 
-    return min(candidates, key=lambda dt: abs((dt - now).total_seconds()))
+    non_future = [dt for dt in candidates if dt <= now]
+    pool = non_future if non_future else candidates
+    return min(pool, key=lambda dt: abs((dt - now).total_seconds()))
 
 def is_open_status(status: str) -> bool:
     if not isinstance(status, str):
