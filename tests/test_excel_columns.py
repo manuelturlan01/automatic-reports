@@ -2,6 +2,7 @@ from pathlib import Path
 import sys
 
 import openpyxl
+from openpyxl.utils import get_column_letter
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import tickets_parser
@@ -58,3 +59,24 @@ def test_generated_excel_has_expected_columns(tmp_path, monkeypatch):
     ]
 
     assert header_row[: len(expected_order)] == tuple(expected_order)
+
+    priority_column_index = header_row.index("Prioridad") + 1
+    priority_cell_value = worksheet.cell(row=2, column=priority_column_index).value
+    assert priority_cell_value in (None, "")
+
+    priority_column_letter = get_column_letter(priority_column_index)
+    expected_priority_range = f"{priority_column_letter}2:{priority_column_letter}200"
+    expected_formula = '"' + ",".join(tickets_parser.PRIORITY_OPTIONS) + '"'
+
+    priority_validation = None
+    for validation in worksheet.data_validations.dataValidation:
+        if (
+            str(validation.sqref) == expected_priority_range
+            and validation.type == "list"
+        ):
+            priority_validation = validation
+            break
+
+    assert priority_validation is not None
+    assert priority_validation.formula1 == expected_formula
+    assert priority_validation.allow_blank
