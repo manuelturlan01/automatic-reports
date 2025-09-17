@@ -48,6 +48,13 @@ AREA_CBSA = "CBSA"
 AREA_FONDOS = "Fondos"
 AREA_OPTIONS = [AREA_CBSA, AREA_FONDOS]
 
+PRIORITY_OPTIONS: List[str] = [
+    "Baja",
+    "Media",
+    "Alta",
+    "Crítica",
+]
+
 # ============== Backends de extracción de texto ==============
 try:
     import fitz  # PyMuPDF
@@ -256,10 +263,25 @@ def parse_header_block(cleaned: str, lines: List[str]) -> Dict[str,str]:
         }
     return {"Ticket Number":"","Status":"","Name":"","Priority":"","Department":"","Create Date":""}
 
+EMPTY_PARSE_RESULT: Dict[str, str] = {
+    "N° Ticket": "",
+    "Título del ticket": "",
+    "Estado BW": "",
+    "Prioridad": "",
+    "Departamento": "",
+    "Fecha de creación": "",
+    "Autor": "",
+    "Última respuesta por": "",
+    "Última respuesta el": "",
+    "Error": "",
+}
+
 def parse_pdf(pdf_path: str, tz: ZoneInfo, now: datetime) -> Dict[str,str]:
     raw = extract_text(pdf_path)
     if not raw or len(raw) < 80:
-        return {"N° Ticket":"","Título del ticket":"","Estado BW":"","Prioridad":"","Departamento":"","Fecha de creación":"","Última respuesta por":"","Última respuesta el":"","Error":"no_text_extracted"}
+        fallback = EMPTY_PARSE_RESULT.copy()
+        fallback["Error"] = "no_text_extracted"
+        return fallback
     cleaned = clean_text(raw)
     lines = cleaned.splitlines()
     hdr = parse_header_block(cleaned, lines)
@@ -280,18 +302,20 @@ def parse_pdf(pdf_path: str, tz: ZoneInfo, now: datetime) -> Dict[str,str]:
     if not first_author:
         first_author = fallback_last_author_from_tail(cleaned)
 
-    return {
-        "N° Ticket": hdr.get("Ticket Number",""),
+    result = EMPTY_PARSE_RESULT.copy()
+    result.update({
+        "N° Ticket": hdr.get("Ticket Number", ""),
         "Título del ticket": title,
-        "Estado BW": hdr.get("Status",""),
-        "Prioridad": hdr.get("Priority",""),
+        "Estado BW": hdr.get("Status", ""),
+        "Prioridad": "",
         "Departamento": "",
-        "Fecha de creación": hdr.get("Create Date",""),
+        "Fecha de creación": hdr.get("Create Date", ""),
         "Autor": first_author,
         "Última respuesta por": last_by,
         "Última respuesta el": last_at,
-        "Error": ""
-    }
+        "Error": "",
+    })
+    return result
 
 def main():
     ap = argparse.ArgumentParser(description="PDF tickets -> Excel (ES)")
@@ -317,6 +341,8 @@ def main():
         rows.append(row)
 
     df = pd.DataFrame(rows)
+
+    df["Prioridad"] = ""
 
     rename_map = {}
     if "N° Ticket" in df.columns:
@@ -410,12 +436,20 @@ def main():
         wb = writer.book
         ws = writer.sheets[sheet_name]
 
+        priority_idx = df.columns.get_loc("Prioridad") + 1
         area_idx = df.columns.get_loc("Área") + 1
         dept_idx = df.columns.get_loc("Departamento") + 1
+        priority_col = get_column_letter(priority_idx)
         area_col = get_column_letter(area_idx)
         dept_col = get_column_letter(dept_idx)
+        priority_range = f"{priority_col}{data_row_start}:{priority_col}{data_row_end}"
         area_range = f"{area_col}{data_row_start}:{area_col}{data_row_end}"
         dept_range = f"{dept_col}{data_row_start}:{dept_col}{data_row_end}"
+
+        priority_formula = '"' + ",".join(PRIORITY_OPTIONS) + '"'
+        dv_priority = DataValidation(type="list", formula1=priority_formula, allow_blank=True)
+        ws.add_data_validation(dv_priority)
+        dv_priority.add(priority_range)
 
         area_formula = '"' + ",".join(AREA_OPTIONS) + '"'
         dv_area = DataValidation(type="list", formula1=area_formula, allow_blank=True)
