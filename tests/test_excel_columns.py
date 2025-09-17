@@ -1,8 +1,11 @@
 from datetime import datetime, timedelta
 from pathlib import Path
 import sys
+import zipfile
+import xml.etree.ElementTree as ET
 
 import openpyxl
+import pytest
 from openpyxl.utils import get_column_letter
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -196,11 +199,39 @@ def test_dates_and_durations_are_written_with_native_types(tmp_path, monkeypatch
     assert creation_cell.number_format == "yyyy-mm-dd hh:mm:ss"
     assert last_response_cell.number_format == "yyyy-mm-dd hh:mm:ss"
 
+    expected_wait_td = timedelta(hours=2, minutes=30)
+    expected_open_td = timedelta(days=1, hours=4)
     assert isinstance(wait_cell.value, timedelta)
     assert isinstance(open_cell.value, timedelta)
-    assert wait_cell.value == timedelta(hours=2, minutes=30)
-    assert open_cell.value == timedelta(days=1, hours=4)
+    assert wait_cell.value == expected_wait_td
+    assert open_cell.value == expected_open_td
     assert wait_cell.number_format == "[h]:mm:ss"
     assert open_cell.number_format == "[h]:mm:ss"
+
+    sheet_index = workbook.sheetnames.index("Tickets") + 1
+    sheet_path = f"xl/worksheets/sheet{sheet_index}.xml"
+    with zipfile.ZipFile(output_path) as archive:
+        sheet_xml = ET.fromstring(archive.read(sheet_path))
+
+    namespace = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+
+    def get_raw_cell(coord: str):
+        for cell in sheet_xml.iter(f"{namespace}c"):
+            if cell.attrib.get("r") == coord:
+                return cell.attrib.get("t"), cell.find(f"{namespace}v").text
+        raise AssertionError(f"Missing cell {coord} in worksheet XML")
+
+    wait_coord = f"{get_column_letter(wait_idx)}2"
+    open_coord = f"{get_column_letter(open_idx)}2"
+    wait_type, wait_raw = get_raw_cell(wait_coord)
+    open_type, open_raw = get_raw_cell(open_coord)
+
+    expected_wait = expected_wait_td.total_seconds() / (24 * 60 * 60)
+    expected_open = expected_open_td.total_seconds() / (24 * 60 * 60)
+
+    assert wait_type == "n"
+    assert open_type == "n"
+    assert float(wait_raw) == pytest.approx(expected_wait)
+    assert float(open_raw) == pytest.approx(expected_open)
 
     workbook.close()

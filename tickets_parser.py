@@ -691,6 +691,7 @@ def main():
             for row_idx in range(data_row_start, last_data_row + 1):
                 ws[f"{col_letter}{row_idx}"].number_format = date_number_format
 
+        seconds_per_day = 24 * 60 * 60
         for col_name in duration_columns:
             col_idx = df.columns.get_loc(col_name) + 1
             col_letter = get_column_letter(col_idx)
@@ -700,7 +701,8 @@ def main():
                 if pd.isna(value):
                     cell.value = None
                 else:
-                    cell.value = value.to_pytimedelta()
+                    total_days = value.total_seconds() / seconds_per_day
+                    cell.value = float(total_days)
                 cell.number_format = duration_number_format
 
             for row_idx in range(data_row_start + len(df), last_data_row + 1):
