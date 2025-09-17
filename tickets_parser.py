@@ -37,11 +37,11 @@ except Exception:
     DefinedName = None  # type: ignore[assignment]
 
 CBSA_DEPARTMENTS: List[str] = [
-    "Atención al Cliente",
+    "Mesa de Dinero",
+    "IT",
+    "Comercial",
     "Mesa de Ayuda",
     "Operaciones",
-    "Soporte Técnico",
-    "Tecnología",
 ]
 
 AREA_CBSA = "CBSA"
@@ -104,7 +104,7 @@ STAMP_RE = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{2,4}),?\s+(\d{1,2}):(\d{2})(?::(
 TS_LINE_RE = STAMP_RE
 
 HEADER_BLOCK_RE = re.compile(
-    r"Ticket\s*#(?P<ticket>\d+).*?Status\s+(?P<Status>.+?)\s+Name\s+(?P<Name>.+?)\s+Priority\s+(?P<Priority>.+?)\s+Email\s+(?P<Email>.+?)\s+Department\s+(?P<Department>.+?)\s+(?:Phone\s+.*?\s+)?Create Date\s+(?P<CreateDate>.+?)\s+Source\s+(?P<Source>.+?)\s+Ticket Details",
+    r"Ticket\s*#(?P<ticket>\d+).*?Status\s+(?P<Status>.+?)\s+Name\s+(?P<Name>.+?)\s+Priority\s+(?P<Priority>.+?)\s+Email\s+(?P<Email>.+?)\s+Department\s+(?P<Department>.+?)(?=\s+Phone\b|\s+Create Date)(?:\s+Phone\s+.*?\s+)?Create Date\s+(?P<CreateDate>.+?)\s+Source\s+(?P<Source>.+?)\s+Ticket Details",
     re.S | re.I
 )
 
@@ -422,8 +422,9 @@ def main():
             else:
                 wb.defined_names.add(defined_name)
 
-            dept_formula = "=IF(${col}2=\"{fondos}\",\"-\",IF(${col}2=\"{cbsa}\",CBSA_Departments,\"\"))".format(
-                col=area_col, fondos=AREA_FONDOS, cbsa=AREA_CBSA
+            dept_formula = (
+                f'=IF(INDIRECT("${area_col}"&ROW())="{AREA_FONDOS}","-",'
+                f'IF(INDIRECT("${area_col}"&ROW())="{AREA_CBSA}",CBSA_Departments,""))'
             )
             dv_dept = DataValidation(type="list", formula1=dept_formula, allow_blank=True)
             ws.add_data_validation(dv_dept)
