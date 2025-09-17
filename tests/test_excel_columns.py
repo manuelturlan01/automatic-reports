@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from pathlib import Path
 import sys
 
@@ -134,38 +135,34 @@ def test_reprocess_preserves_manual_columns_and_appends_new(tmp_path, monkeypatc
     workbook.save(output_path)
     workbook.close()
 
-    def parse_second(path, tz, now):
-        if path == str(pdf_one):
-            return {
-                "N° Ticket": "123",
-                "Título del ticket": "Actualizado",
-                "Estado BW": "Cerrado",
-                "Prioridad": "Automática",
-                "Departamento": "Auto",
-                "Fecha de creación": "",
-                "Autor": "Alice",
-                "Última respuesta por": "Bob",
-                "Última respuesta el": "",
-            }
-        assert path == str(pdf_two)
+
+def test_dates_and_durations_are_written_with_native_types(tmp_path, monkeypatch):
+    output_path = tmp_path / "Tickets.xlsx"
+    pdf_path = tmp_path / "Ticket-0001.pdf"
+    pdf_path.write_bytes(b"")
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2024, 1, 10, 12, 0, tzinfo=tz)
+
+    def fake_parse_pdf(path, tz, now):
+        assert path == str(pdf_path)
         return {
-            "N° Ticket": "456",
-            "Título del ticket": "Nuevo",
+            "N° Ticket": "789",
+            "Título del ticket": "Fechas",
             "Estado BW": "Abierto",
-            "Prioridad": "Alta",
+            "Prioridad": "Media",
             "Departamento": "IT",
-            "Fecha de creación": "",
-            "Autor": "Carol",
-            "Última respuesta por": "Dave",
-            "Última respuesta el": "",
+            "Fecha de creación": "09/01/2024 08:00",
+            "Autor": "Eve",
+            "Última respuesta por": "Frank",
+            "Última respuesta el": "10/01/2024 09:30",
         }
 
-    monkeypatch.setattr(
-        tickets_parser,
-        "glob",
-        lambda pattern: sorted([str(pdf_one), str(pdf_two)]),
-    )
-    monkeypatch.setattr(tickets_parser, "parse_pdf", parse_second)
+    monkeypatch.setattr(tickets_parser, "glob", lambda pattern: [str(pdf_path)])
+    monkeypatch.setattr(tickets_parser, "parse_pdf", fake_parse_pdf)
+    monkeypatch.setattr(tickets_parser, "datetime", FixedDateTime)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -184,30 +181,27 @@ def test_reprocess_preserves_manual_columns_and_appends_new(tmp_path, monkeypatc
     worksheet = workbook["Tickets"]
     headers = [cell.value for cell in next(worksheet.iter_rows(min_row=1, max_row=1))]
 
-    ticket_idx = headers.index("N Ticket")
-    title_idx = headers.index("Título del ticket")
-    priority_idx = headers.index("Prioridad")
-    area_idx = headers.index("Área")
-    dept_idx = headers.index("Departamento")
+    creation_idx = headers.index("Fecha de creación") + 1
+    last_response_idx = headers.index("Última respuesta el") + 1
+    wait_idx = headers.index("Tiempo parado desde la última respuesta") + 1
+    open_idx = headers.index("Tiempo abierto (si sigue abierto)") + 1
 
-    data_rows = []
-    for row in worksheet.iter_rows(min_row=2, values_only=True):
-        ticket_value = row[ticket_idx]
-        if ticket_value in (None, ""):
-            break
-        data_rows.append(row)
+    creation_cell = worksheet.cell(row=2, column=creation_idx)
+    last_response_cell = worksheet.cell(row=2, column=last_response_idx)
+    wait_cell = worksheet.cell(row=2, column=wait_idx)
+    open_cell = worksheet.cell(row=2, column=open_idx)
 
-    ticket_values = [row[ticket_idx] for row in data_rows]
-    assert ticket_values.count("123") == 1
-    assert ticket_values[-1] == "456"
+    assert isinstance(creation_cell.value, datetime)
+    assert isinstance(last_response_cell.value, datetime)
+    assert creation_cell.number_format == "yyyy-mm-dd hh:mm:ss"
+    assert last_response_cell.number_format == "yyyy-mm-dd hh:mm:ss"
 
-    ticket_123 = next(row for row in data_rows if row[ticket_idx] == "123")
-    assert ticket_123[title_idx] == "Actualizado"
-    assert ticket_123[priority_idx] == "Manual Prioridad"
-    assert ticket_123[area_idx] == "Área Manual"
-    assert ticket_123[dept_idx] == "Departamento Manual"
+    assert isinstance(wait_cell.value, timedelta)
+    assert isinstance(open_cell.value, timedelta)
+    assert wait_cell.number_format == "[h]:mm:ss"
+    assert open_cell.number_format == "[h]:mm:ss"
 
-    ticket_456 = next(row for row in data_rows if row[ticket_idx] == "456")
-    assert ticket_456[priority_idx] in (None, "")
+    assert wait_cell.value.total_seconds() == 2.5 * 3600
+    assert open_cell.value == timedelta(days=1, hours=4)
 
     workbook.close()
