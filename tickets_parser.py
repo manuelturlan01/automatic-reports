@@ -405,9 +405,8 @@ def main():
                 val_sheet.cell(row=idx, column=1, value=dept_value)
             val_sheet.sheet_state = "hidden"
 
-            for dn in list(wb.defined_names.definedName):
-                if dn.name == "CBSA_Departments":
-                    wb.defined_names.definedName.remove(dn)
+            if "CBSA_Departments" in wb.defined_names:
+                del wb.defined_names["CBSA_Departments"]
 
             dept_range_ref = f"'{validation_sheet_name}'!$A$1:$A${len(CBSA_DEPARTMENTS)}"
             wb.defined_names.append(DefinedName(name="CBSA_Departments", attr_text=dept_range_ref))
