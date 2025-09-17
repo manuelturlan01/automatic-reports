@@ -26,7 +26,6 @@ def test_generated_excel_has_expected_columns(tmp_path, monkeypatch):
             "Autor": "Alice",
             "Última respuesta por": "Bob",
             "Última respuesta el": "",
-            "Error": "",
         }
 
     monkeypatch.setattr(tickets_parser, "parse_pdf", fake_parse_pdf)

@@ -18,7 +18,7 @@ Opcionales:
 Requisitos:
   pip install -U pandas PyMuPDF PyPDF2 openpyxl
 """
-import os, re, sys, argparse, time
+import os, re, sys, argparse, time, unicodedata
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
@@ -110,12 +110,62 @@ WEEKDAY_LINE = re.compile(r"^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|
 STAMP_RE = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{2,4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AP]M)?", re.I)
 TS_LINE_RE = STAMP_RE
 
-HEADER_BLOCK_RE = re.compile(
-    r"Ticket\s*#(?P<ticket>\d+).*?Status\s+(?P<Status>.+?)\s+Name\s+(?P<Name>.+?)\s+Priority\s+(?P<Priority>.+?)\s+Email\s+(?P<Email>.+?)\s+Department\s+(?P<Department>.+?)(?=\s+Phone\b|\s+Create Date)(?:\s+Phone\s+.*?\s+)?Create Date\s+(?P<CreateDate>.+?)\s+Source\s+(?P<Source>.+?)\s+Ticket Details",
-    re.S | re.I
-)
-
 LABELY = re.compile(r"^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ/ .]{2,60}\s*:\s*")
+
+HEADER_FIELD_VARIANTS: Dict[str, List[str]] = {
+    "Status": ["Status", "Estado"],
+    "Name": ["Name", "Nombre"],
+    "Priority": ["Priority", "Prioridad"],
+    "Department": ["Department", "Departamento"],
+    "Create Date": ["Create Date", "Fecha de creación", "Fecha de creacion"],
+}
+
+ADDITIONAL_HEADER_LABELS = [
+    "Email",
+    "Phone",
+    "Source",
+    "Ticket Details",
+    "Urgency",
+    "Related client number or user",
+    "Related client",
+    "Cliente relacionado",
+    "Cliente/usuario relacionado",
+]
+
+
+def normalize_label_text(s: str) -> str:
+    s = unicodedata.normalize("NFKD", s or "")
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = s.replace(":", " ").replace("#", " ")
+    return " ".join(s.lower().split())
+
+
+def label_to_pattern(label: str) -> str:
+    parts = [re.escape(part) for part in label.strip().split() if part]
+    if not parts:
+        return ""
+    return r"\s+".join(parts)
+
+
+HEADER_FIELD_INLINE_PATTERNS: Dict[str, List[re.Pattern[str]]] = {
+    key: [
+        re.compile(rf"^(?:{label_to_pattern(label)})\s*[:\-]?\s*(.+)$", re.I)
+        for label in variants
+    ]
+    for key, variants in HEADER_FIELD_VARIANTS.items()
+}
+
+HEADER_FIELD_NORMALIZED: Dict[str, List[str]] = {
+    key: [normalize_label_text(label) for label in variants]
+    for key, variants in HEADER_FIELD_VARIANTS.items()
+}
+
+ALL_KNOWN_HEADER_LABELS = set()
+for variants in HEADER_FIELD_NORMALIZED.values():
+    ALL_KNOWN_HEADER_LABELS.update(variants)
+ALL_KNOWN_HEADER_LABELS.update(normalize_label_text(lbl) for lbl in ADDITIONAL_HEADER_LABELS)
+
+HEADER_SEARCH_LIMIT = 120
 
 def clean_text(text: str) -> str:
     text = FOOTER_RE.sub("", text)
@@ -250,18 +300,53 @@ def is_open_status(status: str) -> bool:
     return not any(w in st for w in closed_words)
 
 def parse_header_block(cleaned: str, lines: List[str]) -> Dict[str,str]:
-    m = HEADER_BLOCK_RE.search(cleaned)
-    if m:
-        gd = m.groupdict()
-        return {
-            "Ticket Number": gd.get("ticket","").strip(),
-            "Status":        gd.get("Status","").strip(),
-            "Name":          gd.get("Name","").strip(),
-            "Priority":      gd.get("Priority","").strip(),
-            "Department":    gd.get("Department","").strip(),
-            "Create Date":   gd.get("CreateDate","").strip(),
-        }
-    return {"Ticket Number":"","Status":"","Name":"","Priority":"","Department":"","Create Date":""}
+    header = {
+        "Ticket Number": "",
+        "Status": "",
+        "Name": "",
+        "Priority": "",
+        "Department": "",
+        "Create Date": "",
+    }
+
+    ticket_match = re.search(r"Ticket\s*#(\d+)", cleaned)
+    if ticket_match:
+        header["Ticket Number"] = ticket_match.group(1).strip()
+
+    stripped_lines = [ln.strip() for ln in lines]
+    normalized_lines = [normalize_label_text(ln) for ln in stripped_lines]
+
+    def find_value(field: str) -> str:
+        inline_patterns = HEADER_FIELD_INLINE_PATTERNS.get(field, [])
+        normalized_variants = HEADER_FIELD_NORMALIZED.get(field, [])
+
+        limit = min(len(stripped_lines), HEADER_SEARCH_LIMIT)
+        for idx in range(limit):
+            raw_line = stripped_lines[idx]
+            if not raw_line:
+                continue
+
+            for pat in inline_patterns:
+                m = pat.match(raw_line)
+                if m:
+                    value = m.group(1).strip()
+                    if value and normalize_label_text(value) not in ALL_KNOWN_HEADER_LABELS:
+                        return value
+
+            if normalized_lines[idx] in normalized_variants:
+                for j in range(idx + 1, min(len(stripped_lines), idx + 6)):
+                    candidate = stripped_lines[j].strip()
+                    if not candidate:
+                        continue
+                    if normalize_label_text(candidate) in ALL_KNOWN_HEADER_LABELS:
+                        break
+                    return candidate
+        return ""
+
+    for field in ("Status", "Name", "Priority", "Department", "Create Date"):
+        header[field] = find_value(field)
+
+    return header
 
 EMPTY_PARSE_RESULT: Dict[str, str] = {
     "N° Ticket": "",
@@ -273,15 +358,12 @@ EMPTY_PARSE_RESULT: Dict[str, str] = {
     "Autor": "",
     "Última respuesta por": "",
     "Última respuesta el": "",
-    "Error": "",
 }
 
 def parse_pdf(pdf_path: str, tz: ZoneInfo, now: datetime) -> Dict[str,str]:
     raw = extract_text(pdf_path)
     if not raw or len(raw) < 80:
-        fallback = EMPTY_PARSE_RESULT.copy()
-        fallback["Error"] = "no_text_extracted"
-        return fallback
+        return EMPTY_PARSE_RESULT.copy()
     cleaned = clean_text(raw)
     lines = cleaned.splitlines()
     hdr = parse_header_block(cleaned, lines)
@@ -304,16 +386,15 @@ def parse_pdf(pdf_path: str, tz: ZoneInfo, now: datetime) -> Dict[str,str]:
 
     result = EMPTY_PARSE_RESULT.copy()
     result.update({
-        "N° Ticket": hdr.get("Ticket Number", ""),
-        "Título del ticket": title,
-        "Estado BW": hdr.get("Status", ""),
-        "Prioridad": "",
-        "Departamento": "",
-        "Fecha de creación": hdr.get("Create Date", ""),
-        "Autor": first_author,
-        "Última respuesta por": last_by,
-        "Última respuesta el": last_at,
-        "Error": "",
+        "N° Ticket": hdr.get("Ticket Number", "").strip(),
+        "Título del ticket": title.strip(),
+        "Estado BW": hdr.get("Status", "").strip(),
+        "Prioridad": hdr.get("Priority", "").strip(),
+        "Departamento": hdr.get("Department", "").strip(),
+        "Fecha de creación": hdr.get("Create Date", "").strip(),
+        "Autor": first_author.strip(),
+        "Última respuesta por": last_by.strip(),
+        "Última respuesta el": last_at.strip(),
     })
     return result
 
@@ -371,6 +452,8 @@ def main():
         area = (row.get("Área") or "").strip()
         dept = (row.get("Departamento") or "").strip()
         if not dept:
+            return ""
+        if not area:
             return ""
         if area == AREA_FONDOS:
             return "-" if dept == "-" else ""
