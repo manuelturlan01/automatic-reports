@@ -449,6 +449,8 @@ def main():
 
     df = pd.DataFrame(rows)
 
+    manual_columns = ["Prioridad", "Área", "Departamento"]
+
     df["Prioridad"] = ""
 
     rename_map = {}
@@ -501,6 +503,59 @@ def main():
     remaining_cols = [col for col in df.columns if col not in leading_cols]
     df = df.loc[:, leading_cols + remaining_cols]
 
+    if "N Ticket" in df.columns:
+        df["N Ticket"] = df["N Ticket"].fillna("").astype(str)
+        df = df.drop_duplicates(subset=["N Ticket"], keep="last").reset_index(drop=True)
+
+    df = df.fillna("")
+
+    sheet_name = "Tickets"
+
+    existing_df = None
+    out_path = args.out
+    if os.path.exists(out_path):
+        try:
+            existing_df = pd.read_excel(out_path, sheet_name=sheet_name).fillna("")
+        except Exception as exc:
+            log(f"Aviso: no se pudo leer el Excel existente '{out_path}': {exc}")
+            existing_df = None
+
+    if existing_df is not None:
+        if "N Ticket" in existing_df.columns:
+            existing_df["N Ticket"] = existing_df["N Ticket"].fillna("").astype(str)
+            existing_df = existing_df.drop_duplicates(subset=["N Ticket"], keep="first").reset_index(drop=True)
+
+        for col in df.columns:
+            if col not in existing_df.columns:
+                existing_df[col] = ""
+
+        existing_df = existing_df.reindex(columns=df.columns, fill_value="")
+        df = df.reindex(columns=existing_df.columns, fill_value="")
+
+        idx_by_ticket = {
+            ticket: idx for idx, ticket in existing_df["N Ticket"].items() if ticket
+        }
+
+        rows_to_append = []
+        for _, row in df.iterrows():
+            ticket = row.get("N Ticket", "")
+            if ticket and ticket in idx_by_ticket:
+                row_idx = idx_by_ticket[ticket]
+                for col in df.columns:
+                    if col in manual_columns:
+                        continue
+                    existing_df.at[row_idx, col] = row[col]
+            else:
+                rows_to_append.append(row)
+
+        if rows_to_append:
+            new_rows_df = pd.DataFrame(rows_to_append, columns=df.columns)
+            existing_df = pd.concat([existing_df, new_rows_df], ignore_index=True)
+
+        df = existing_df
+
+    df = df.fillna("")
+
     def human_delta(td_seconds: Optional[float]) -> str:
         if td_seconds is None: return ""
         secs = int(td_seconds)
@@ -527,7 +582,6 @@ def main():
         return ""
     df["Tiempo abierto (si sigue abierto)"] = df.apply(compute_open_age, axis=1)
 
-    out_path = args.out
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
 
     if not HAS_OPENPYXL:
@@ -536,7 +590,6 @@ def main():
             "Instalá openpyxl (pip install openpyxl) e intentá nuevamente."
         )
 
-    sheet_name = "Tickets"
     data_row_start = 2
     data_row_end = max(len(df) + 1, 200)
 
