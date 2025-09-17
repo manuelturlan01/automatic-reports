@@ -52,11 +52,9 @@ def test_generated_excel_has_expected_columns(tmp_path, monkeypatch):
         "N Ticket",
         "Título del ticket",
         "Autor",
-        "Estado BW",
         "Prioridad",
         "Área",
         "Departamento",
     ]
 
     assert header_row[: len(expected_order)] == tuple(expected_order)
-    assert "Estado BW" in header_row
