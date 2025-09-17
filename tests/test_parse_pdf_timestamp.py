@@ -7,10 +7,13 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-pd_stub = types.ModuleType("pandas")
-pd_stub.DataFrame = lambda *args, **kwargs: None
-pd_stub.to_excel = lambda *args, **kwargs: None
-sys.modules.setdefault("pandas", pd_stub)
+try:  # pragma: no cover - exercised indirectly in tests
+    import pandas  # type: ignore  # noqa: F401
+except ImportError:  # pragma: no cover - fallback used when pandas no disponible
+    pd_stub = types.ModuleType("pandas")
+    pd_stub.DataFrame = lambda *args, **kwargs: None  # type: ignore[assignment]
+    pd_stub.to_excel = lambda *args, **kwargs: None  # type: ignore[assignment]
+    sys.modules.setdefault("pandas", pd_stub)
 
 from tickets_parser import parse_pdf_timestamp
 

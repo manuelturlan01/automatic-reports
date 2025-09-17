@@ -48,6 +48,14 @@ AREA_CBSA = "CBSA"
 AREA_FONDOS = "Fondos"
 AREA_OPTIONS = [AREA_CBSA, AREA_FONDOS]
 
+PRIORITY_OPTIONS: List[str] = [
+    "Alta",
+    "Media",
+    "Baja",
+    "Muy Alta",
+    "Muy Baja",
+]
+
 # ============== Backends de extracción de texto ==============
 try:
     import fitz  # PyMuPDF
@@ -284,7 +292,7 @@ def parse_pdf(pdf_path: str, tz: ZoneInfo, now: datetime) -> Dict[str,str]:
         "N° Ticket": hdr.get("Ticket Number",""),
         "Título del ticket": title,
         "Estado": hdr.get("Status",""),
-        "Prioridad": hdr.get("Priority",""),
+        "Prioridad": "",
         "Departamento": hdr.get("Department",""),
         "Fecha de creación": hdr.get("Create Date",""),
         "Autor": first_author,
@@ -292,6 +300,64 @@ def parse_pdf(pdf_path: str, tz: ZoneInfo, now: datetime) -> Dict[str,str]:
         "Última respuesta el": last_at,
         "Error": ""
     }
+
+
+def _apply_excel_validations(df: pd.DataFrame, wb, ws, data_row_start: int, data_row_end: int) -> None:
+    area_col = None
+    if "Área" in df.columns:
+        area_idx = df.columns.get_loc("Área") + 1
+        area_col = get_column_letter(area_idx)
+        area_range = f"{area_col}{data_row_start}:{area_col}{data_row_end}"
+        area_formula = '"' + ",".join(AREA_OPTIONS) + '"'
+        dv_area = DataValidation(type="list", formula1=area_formula, allow_blank=True)
+        ws.add_data_validation(dv_area)
+        dv_area.add(area_range)
+
+    if "Prioridad" in df.columns and PRIORITY_OPTIONS:
+        priority_idx = df.columns.get_loc("Prioridad") + 1
+        priority_col = get_column_letter(priority_idx)
+        priority_range = f"{priority_col}{data_row_start}:{priority_col}{data_row_end}"
+        priority_formula = '"' + ",".join(PRIORITY_OPTIONS) + '"'
+        dv_priority = DataValidation(type="list", formula1=priority_formula, allow_blank=True)
+        ws.add_data_validation(dv_priority)
+        dv_priority.add(priority_range)
+
+    if "Departamento" in df.columns:
+        dept_idx = df.columns.get_loc("Departamento") + 1
+        dept_col = get_column_letter(dept_idx)
+        dept_range = f"{dept_col}{data_row_start}:{dept_col}{data_row_end}"
+
+        if CBSA_DEPARTMENTS and area_col is not None:
+            validation_sheet_name = "Listas"
+            if validation_sheet_name in wb.sheetnames:
+                val_sheet = wb[validation_sheet_name]
+                val_sheet.delete_rows(1, val_sheet.max_row)
+            else:
+                val_sheet = wb.create_sheet(validation_sheet_name)
+
+            for idx, dept_value in enumerate(CBSA_DEPARTMENTS, start=1):
+                val_sheet.cell(row=idx, column=1, value=dept_value)
+            val_sheet.sheet_state = "hidden"
+
+            if "CBSA_Departments" in wb.defined_names:
+                del wb.defined_names["CBSA_Departments"]
+
+            dept_range_ref = f"'{validation_sheet_name}'!$A$1:$A${len(CBSA_DEPARTMENTS)}"
+            defined_name = DefinedName(name="CBSA_Departments", attr_text=dept_range_ref)
+            if hasattr(wb.defined_names, "append"):
+                wb.defined_names.append(defined_name)
+            else:
+                wb.defined_names.add(defined_name)
+
+            dept_formula = (
+                f'=IF(INDIRECT("${area_col}"&ROW())="{AREA_FONDOS}","-",'
+                f'IF(INDIRECT("${area_col}"&ROW())="{AREA_CBSA}",CBSA_Departments,""))'
+            )
+            dv_dept = DataValidation(type="list", formula1=dept_formula, allow_blank=True)
+            ws.add_data_validation(dv_dept)
+            dv_dept.add(dept_range)
+        elif not CBSA_DEPARTMENTS:
+            log("Aviso: la lista de departamentos CBSA está vacía; no se creó la validación de datos para 'Departamento'.")
 
 def main():
     ap = argparse.ArgumentParser(description="PDF tickets -> Excel (ES)")
@@ -388,49 +454,7 @@ def main():
         wb = writer.book
         ws = writer.sheets[sheet_name]
 
-        area_idx = df.columns.get_loc("Área") + 1
-        dept_idx = df.columns.get_loc("Departamento") + 1
-        area_col = get_column_letter(area_idx)
-        dept_col = get_column_letter(dept_idx)
-        area_range = f"{area_col}{data_row_start}:{area_col}{data_row_end}"
-        dept_range = f"{dept_col}{data_row_start}:{dept_col}{data_row_end}"
-
-        area_formula = '"' + ",".join(AREA_OPTIONS) + '"'
-        dv_area = DataValidation(type="list", formula1=area_formula, allow_blank=True)
-        ws.add_data_validation(dv_area)
-        dv_area.add(area_range)
-
-        if CBSA_DEPARTMENTS:
-            validation_sheet_name = "Listas"
-            if validation_sheet_name in wb.sheetnames:
-                val_sheet = wb[validation_sheet_name]
-                val_sheet.delete_rows(1, val_sheet.max_row)
-            else:
-                val_sheet = wb.create_sheet(validation_sheet_name)
-
-            for idx, dept_value in enumerate(CBSA_DEPARTMENTS, start=1):
-                val_sheet.cell(row=idx, column=1, value=dept_value)
-            val_sheet.sheet_state = "hidden"
-
-            if "CBSA_Departments" in wb.defined_names:
-                del wb.defined_names["CBSA_Departments"]
-
-            dept_range_ref = f"'{validation_sheet_name}'!$A$1:$A${len(CBSA_DEPARTMENTS)}"
-            defined_name = DefinedName(name="CBSA_Departments", attr_text=dept_range_ref)
-            if hasattr(wb.defined_names, "append"):
-                wb.defined_names.append(defined_name)
-            else:
-                wb.defined_names.add(defined_name)
-
-            dept_formula = (
-                f'=IF(INDIRECT("${area_col}"&ROW())="{AREA_FONDOS}","-",'
-                f'IF(INDIRECT("${area_col}"&ROW())="{AREA_CBSA}",CBSA_Departments,""))'
-            )
-            dv_dept = DataValidation(type="list", formula1=dept_formula, allow_blank=True)
-            ws.add_data_validation(dv_dept)
-            dv_dept.add(dept_range)
-        else:
-            log("Aviso: la lista de departamentos CBSA está vacía; no se creó la validación de datos para 'Departamento'.")
+        _apply_excel_validations(df, wb, ws, data_row_start, data_row_end)
 
     log(f"Listo. Archivo generado: {out_path}")
 
