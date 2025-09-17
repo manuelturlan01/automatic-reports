@@ -262,7 +262,6 @@ def parse_pdf(pdf_path: str, tz: ZoneInfo, now: datetime) -> Dict[str,str]:
             "Última respuesta por": "",
             "Última respuesta el": "",
             "Error": "no_text_extracted",
-            "_src": os.path.basename(pdf_path),
         }
     cleaned = clean_text(raw)
     lines = cleaned.splitlines()
@@ -289,7 +288,6 @@ def parse_pdf(pdf_path: str, tz: ZoneInfo, now: datetime) -> Dict[str,str]:
         "Última respuesta por": last_by,
         "Última respuesta el": last_at,
         "Error": "",
-        "_src": os.path.basename(pdf_path),
     }
 
 def main():
