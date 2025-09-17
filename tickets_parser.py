@@ -236,7 +236,7 @@ def parse_header_block(cleaned: str, lines: List[str]) -> Dict[str,str]:
 def parse_pdf(pdf_path: str, tz: ZoneInfo, now: datetime) -> Dict[str,str]:
     raw = extract_text(pdf_path)
     if not raw or len(raw) < 80:
-        return {"N° Ticket":"","Título del ticket":"","Estado":"","Prioridad":"","Departamento":"","Fecha de creación":"","Última respuesta por":"","Última respuesta el":"","Error":"no_text_extracted","_src":os.path.basename(pdf_path)}
+        return {"N° Ticket":"","Título del ticket":"","Estado":"","Prioridad":"","Departamento":"","Fecha de creación":"","Última respuesta por":"","Última respuesta el":"","Error":"no_text_extracted"}
     cleaned = clean_text(raw)
     lines = cleaned.splitlines()
     hdr = parse_header_block(cleaned, lines)
@@ -260,8 +260,7 @@ def parse_pdf(pdf_path: str, tz: ZoneInfo, now: datetime) -> Dict[str,str]:
         "Fecha de creación": hdr.get("Create Date",""),
         "Última respuesta por": last_by,
         "Última respuesta el": last_at,
-        "Error": "",
-        "_src": os.path.basename(pdf_path)
+        "Error": ""
     }
 
 def main():
