@@ -285,7 +285,7 @@ def parse_pdf(pdf_path: str, tz: ZoneInfo, now: datetime) -> Dict[str,str]:
         "Título del ticket": title,
         "Estado": hdr.get("Status",""),
         "Prioridad": hdr.get("Priority",""),
-        "Departamento": hdr.get("Department",""),
+        "Departamento": "",
         "Fecha de creación": hdr.get("Create Date",""),
         "Autor": first_author,
         "Última respuesta por": last_by,
@@ -331,12 +331,12 @@ def main():
     def normalize_department(row):
         area = (row.get("Área") or "").strip()
         dept = (row.get("Departamento") or "").strip()
-        if area == AREA_FONDOS:
-            return "-"
-        if area == AREA_CBSA:
-            if dept in CBSA_DEPARTMENTS:
-                return dept
+        if not dept:
             return ""
+        if area == AREA_FONDOS:
+            return "-" if dept == "-" else ""
+        if area == AREA_CBSA:
+            return dept if dept in CBSA_DEPARTMENTS else ""
         return dept
 
     df["Departamento"] = df.apply(normalize_department, axis=1)
