@@ -326,6 +326,11 @@ def main():
     if rename_map:
         df = df.rename(columns=rename_map)
 
+    estado_bw_series = None
+    if "Estado BW" in df.columns:
+        estado_bw_series = df["Estado BW"].copy()
+        df = df.drop(columns=["Estado BW"])
+
     if "Área" not in df.columns:
         df["Área"] = ""
     else:
@@ -353,7 +358,6 @@ def main():
         "N Ticket",
         "Título del ticket",
         "Autor",
-        "Estado BW",
         "Prioridad",
         "Área",
         "Departamento",
@@ -379,7 +383,9 @@ def main():
     df["Tiempo parado desde la última respuesta"] = df["Última respuesta el"].apply(lambda s: human_delta((now - parse_date(s)).total_seconds() if parse_date(s) else None))
 
     def compute_open_age(row):
-        st = row.get("Estado BW","")
+        st = ""
+        if estado_bw_series is not None:
+            st = estado_bw_series.get(row.name, "")
         cd = parse_date(row.get("Fecha de creación",""))
         if cd and is_open_status(st):
             return human_delta((now - cd).total_seconds())
