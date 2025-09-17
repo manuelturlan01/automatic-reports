@@ -40,8 +40,14 @@ CBSA_DEPARTMENTS: List[str] = [
     "Mesa de Dinero",
     "IT",
     "Comercial",
-    "Mesa de Ayuda",
+    "Administración",
+    "Desarrollo de Negocios",
+    "Finanzas Corporativas",
+    "Riesgos",
+    "Tesorería",
     "Operaciones",
+    "Contabilidad",
+    "Cumplimiento",
 ]
 
 AREA_CBSA = "CBSA"
