@@ -1,12 +1,9 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 import sys
-import zipfile
-import xml.etree.ElementTree as ET
 
 import openpyxl
 from openpyxl.utils import get_column_letter
-import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import tickets_parser
@@ -199,27 +196,11 @@ def test_dates_and_durations_are_written_with_native_types(tmp_path, monkeypatch
     assert creation_cell.number_format == "yyyy-mm-dd hh:mm:ss"
     assert last_response_cell.number_format == "yyyy-mm-dd hh:mm:ss"
 
-    assert isinstance(wait_cell.value, timedelta)
-    assert isinstance(open_cell.value, timedelta)
-    assert wait_cell.number_format == "[h]:mm:ss"
-    assert open_cell.number_format == "[h]:mm:ss"
-
-    ns = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
-    with zipfile.ZipFile(output_path) as zf:
-        sheet_xml = ET.fromstring(zf.read("xl/worksheets/sheet1.xml"))
-
-    def excel_serial(cell_ref: str) -> float:
-        cell = sheet_xml.find(f".//x:c[@r='{cell_ref}']", ns)
-        assert cell is not None, f"Missing cell {cell_ref} in sheet XML"
-        assert cell.get("t") == "n", f"Cell {cell_ref} is not stored as numeric"
-        value_tag = cell.find("x:v", ns)
-        assert value_tag is not None, f"Cell {cell_ref} lacks a <v> tag"
-        return float(value_tag.text)
-
-    wait_serial = excel_serial("J2")
-    open_serial = excel_serial("K2")
-
-    assert wait_serial == pytest.approx(2.5 / 24)
-    assert open_serial == pytest.approx(28 / 24)
+    assert isinstance(wait_cell.value, str)
+    assert isinstance(open_cell.value, str)
+    assert wait_cell.value == "0.02:30:00"
+    assert open_cell.value == "1.04:00:00"
+    assert wait_cell.number_format == "@"
+    assert open_cell.number_format == "@"
 
     workbook.close()

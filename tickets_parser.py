@@ -465,6 +465,47 @@ def normalize_output_path(raw_path: str) -> str:
     return corrected
 
 
+def format_timedelta_for_duration(value) -> str:
+    """Render a timedelta-like value as d.hh:mm:ss for Power BI."""
+
+    if value is None or value == "":
+        return ""
+
+    try:
+        delta = pd.to_timedelta(value)
+    except Exception:
+        return ""
+
+    if pd.isna(delta):
+        return ""
+
+    total_seconds = delta.total_seconds()
+    if not isinstance(total_seconds, (int, float)):
+        return ""
+
+    sign = ""
+    if total_seconds < 0:
+        sign = "-"
+        total_seconds = abs(total_seconds)
+
+    rounded_seconds = int(round(total_seconds))
+    days, remainder = divmod(rounded_seconds, 24 * 60 * 60)
+    hours, remainder = divmod(remainder, 60 * 60)
+    minutes, seconds = divmod(remainder, 60)
+
+    if seconds == 60:
+        seconds = 0
+        minutes += 1
+    if minutes == 60:
+        minutes = 0
+        hours += 1
+    if hours == 24:
+        hours = 0
+        days += 1
+
+    return f"{sign}{days}.{hours:02}:{minutes:02}:{seconds:02}"
+
+
 def main():
     ap = argparse.ArgumentParser(description="PDF tickets -> Excel (ES)")
     ap.add_argument("--pdf_dir", required=True, help="Carpeta con PDFs")
@@ -652,10 +693,12 @@ def main():
     ]
 
     if duration_columns:
-        seconds_per_day = 24 * 60 * 60
         for col in duration_columns:
             timedelta_series = pd.to_timedelta(df[col], errors="coerce")
-            df[col] = timedelta_series.dt.total_seconds() / seconds_per_day
+            df[col] = [
+                format_timedelta_for_duration(value)
+                for value in timedelta_series
+            ]
 
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
 
@@ -685,7 +728,7 @@ def main():
 
         last_data_row = len(df) + 1
         date_number_format = "yyyy-mm-dd hh:mm:ss"
-        duration_number_format = "[h]:mm:ss"
+        duration_number_format = "@"
 
         for col_name in datetime_columns:
             col_idx = df.columns.get_loc(col_name) + 1
