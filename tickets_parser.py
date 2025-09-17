@@ -267,12 +267,18 @@ def parse_pdf(pdf_path: str, tz: ZoneInfo, now: datetime) -> Dict[str,str]:
 
     entries = extract_thread_entries(cleaned)
     last_by, last_at = "", ""
+    first_author = ""
     for e in entries:
         if e["author"] and not is_auto(e["author"], e["body"]):
+            if not first_author:
+                first_author = e["author"]
             last_by, last_at = e["author"], e["stamp"]
 
     if not last_by:
         last_by = fallback_last_author_from_tail(cleaned)
+
+    if not first_author:
+        first_author = fallback_last_author_from_tail(cleaned)
 
     return {
         "N° Ticket": hdr.get("Ticket Number",""),
@@ -281,6 +287,7 @@ def parse_pdf(pdf_path: str, tz: ZoneInfo, now: datetime) -> Dict[str,str]:
         "Prioridad": hdr.get("Priority",""),
         "Departamento": hdr.get("Department",""),
         "Fecha de creación": hdr.get("Create Date",""),
+        "Autor": first_author,
         "Última respuesta por": last_by,
         "Última respuesta el": last_at,
         "Error": ""
@@ -409,7 +416,11 @@ def main():
                 del wb.defined_names["CBSA_Departments"]
 
             dept_range_ref = f"'{validation_sheet_name}'!$A$1:$A${len(CBSA_DEPARTMENTS)}"
-            wb.defined_names.append(DefinedName(name="CBSA_Departments", attr_text=dept_range_ref))
+            defined_name = DefinedName(name="CBSA_Departments", attr_text=dept_range_ref)
+            if hasattr(wb.defined_names, "append"):
+                wb.defined_names.append(defined_name)
+            else:
+                wb.defined_names.add(defined_name)
 
             dept_formula = "=IF(${col}2=\"{fondos}\",\"-\",IF(${col}2=\"{cbsa}\",CBSA_Departments,\"\"))".format(
                 col=area_col, fondos=AREA_FONDOS, cbsa=AREA_CBSA
