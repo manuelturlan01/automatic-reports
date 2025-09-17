@@ -20,7 +20,7 @@ Requisitos:
 """
 import os, re, sys, argparse, time
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 from glob import glob
@@ -194,15 +194,23 @@ def parse_timestamp_mmdd(s: str, tz: ZoneInfo) -> Optional[datetime]:
     except Exception:
         return None
 
+MAX_FUTURE_DELTA = timedelta(days=365)
+
+
 def parse_pdf_timestamp(s: str, now: datetime, tz: ZoneInfo) -> Optional[datetime]:
-    dt = parse_timestamp_ddmm(s, tz)
-    if dt and dt > now:
-        alt = parse_timestamp_mmdd(s, tz)
-        if alt and alt <= now:
-            dt = alt
-        else:
-            return None
-    return dt
+    candidates = []
+    for parse_fn in (parse_timestamp_ddmm, parse_timestamp_mmdd):
+        dt = parse_fn(s, tz)
+        if not dt:
+            continue
+        if dt > now + MAX_FUTURE_DELTA:
+            continue
+        candidates.append(dt)
+
+    if not candidates:
+        return None
+
+    return min(candidates, key=lambda dt: abs((dt - now).total_seconds()))
 
 def is_open_status(status: str) -> bool:
     if not isinstance(status, str):
