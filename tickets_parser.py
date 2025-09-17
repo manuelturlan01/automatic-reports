@@ -424,6 +424,47 @@ def parse_pdf(pdf_path: str, tz: ZoneInfo, now: datetime) -> Dict[str,str]:
     })
     return result
 
+
+def normalize_output_path(raw_path: str) -> str:
+    """Return a sanitized Excel output path."""
+
+    path = (raw_path or "").strip()
+    if not path:
+        raise ValueError("La ruta de salida no puede estar vacía.")
+
+    allowed_exts = (".xlsx", ".xlsm")
+    base, ext = os.path.splitext(path)
+    ext_lower = ext.lower()
+
+    if ext_lower in allowed_exts:
+        return path
+
+    for allowed_ext in allowed_exts:
+        if ext_lower.startswith(allowed_ext):
+            corrected = base + allowed_ext
+            if corrected != path:
+                log(
+                    "Aviso: la ruta de salida se ajustó a "
+                    f"'{corrected}' (valor original: '{path}')."
+                )
+            return corrected
+
+    if not ext:
+        corrected = path + ".xlsx"
+        log(
+            "Aviso: la ruta de salida no incluía extensión; "
+            f"se utilizará '{corrected}'."
+        )
+        return corrected
+
+    corrected = base + ".xlsx"
+    log(
+        "Aviso: la extensión de salida era inválida; "
+        f"se utilizará '{corrected}'."
+    )
+    return corrected
+
+
 def main():
     ap = argparse.ArgumentParser(description="PDF tickets -> Excel (ES)")
     ap.add_argument("--pdf_dir", required=True, help="Carpeta con PDFs")
@@ -512,7 +553,7 @@ def main():
     sheet_name = "Tickets"
 
     existing_df = None
-    out_path = args.out
+    out_path = normalize_output_path(args.out)
     if os.path.exists(out_path):
         try:
             existing_df = pd.read_excel(out_path, sheet_name=sheet_name).fillna("")
