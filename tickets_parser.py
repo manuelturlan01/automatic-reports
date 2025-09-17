@@ -25,6 +25,29 @@ from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 from glob import glob
 
+try:
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.datavalidation import DataValidation
+    from openpyxl.workbook.defined_name import DefinedName
+    HAS_OPENPYXL = True
+except Exception:
+    HAS_OPENPYXL = False
+    get_column_letter = None  # type: ignore[assignment]
+    DataValidation = None  # type: ignore[assignment]
+    DefinedName = None  # type: ignore[assignment]
+
+CBSA_DEPARTMENTS: List[str] = [
+    "Atención al Cliente",
+    "Mesa de Ayuda",
+    "Operaciones",
+    "Soporte Técnico",
+    "Tecnología",
+]
+
+AREA_CBSA = "CBSA"
+AREA_FONDOS = "Fondos"
+AREA_OPTIONS = [AREA_CBSA, AREA_FONDOS]
+
 # ============== Backends de extracción de texto ==============
 try:
     import fitz  # PyMuPDF
@@ -288,6 +311,34 @@ def main():
 
     df = pd.DataFrame(rows)
 
+    if "Área" not in df.columns:
+        df["Área"] = ""
+    else:
+        df["Área"] = df["Área"].fillna("").astype(str).str.strip()
+
+    if "Departamento" not in df.columns:
+        df["Departamento"] = ""
+    else:
+        df["Departamento"] = df["Departamento"].fillna("").astype(str).str.strip()
+
+    def normalize_department(row):
+        area = (row.get("Área") or "").strip()
+        dept = (row.get("Departamento") or "").strip()
+        if area == AREA_FONDOS:
+            return "-"
+        if area == AREA_CBSA:
+            if dept in CBSA_DEPARTMENTS:
+                return dept
+            return ""
+        return dept
+
+    df["Departamento"] = df.apply(normalize_department, axis=1)
+
+    if "Área" in df.columns and "Departamento" in df.columns:
+        cols = list(df.columns)
+        cols.insert(cols.index("Departamento"), cols.pop(cols.index("Área")))
+        df = df.loc[:, cols]
+
     def human_delta(td_seconds: Optional[float]) -> str:
         if td_seconds is None: return ""
         secs = int(td_seconds)
@@ -314,7 +365,62 @@ def main():
 
     out_path = args.out
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-    df.to_excel(out_path, index=False)
+
+    if not HAS_OPENPYXL:
+        raise RuntimeError(
+            "Se requiere openpyxl para generar el Excel con listas desplegables. "
+            "Instalá openpyxl (pip install openpyxl) e intentá nuevamente."
+        )
+
+    sheet_name = "Tickets"
+    data_row_start = 2
+    data_row_end = max(len(df) + 1, 200)
+
+    with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name=sheet_name)
+        wb = writer.book
+        ws = writer.sheets[sheet_name]
+
+        area_idx = df.columns.get_loc("Área") + 1
+        dept_idx = df.columns.get_loc("Departamento") + 1
+        area_col = get_column_letter(area_idx)
+        dept_col = get_column_letter(dept_idx)
+        area_range = f"{area_col}{data_row_start}:{area_col}{data_row_end}"
+        dept_range = f"{dept_col}{data_row_start}:{dept_col}{data_row_end}"
+
+        area_formula = '"' + ",".join(AREA_OPTIONS) + '"'
+        dv_area = DataValidation(type="list", formula1=area_formula, allow_blank=True)
+        ws.add_data_validation(dv_area)
+        dv_area.add(area_range)
+
+        if CBSA_DEPARTMENTS:
+            validation_sheet_name = "Listas"
+            if validation_sheet_name in wb.sheetnames:
+                val_sheet = wb[validation_sheet_name]
+                val_sheet.delete_rows(1, val_sheet.max_row)
+            else:
+                val_sheet = wb.create_sheet(validation_sheet_name)
+
+            for idx, dept_value in enumerate(CBSA_DEPARTMENTS, start=1):
+                val_sheet.cell(row=idx, column=1, value=dept_value)
+            val_sheet.sheet_state = "hidden"
+
+            for dn in list(wb.defined_names.definedName):
+                if dn.name == "CBSA_Departments":
+                    wb.defined_names.definedName.remove(dn)
+
+            dept_range_ref = f"'{validation_sheet_name}'!$A$1:$A${len(CBSA_DEPARTMENTS)}"
+            wb.defined_names.append(DefinedName(name="CBSA_Departments", attr_text=dept_range_ref))
+
+            dept_formula = "=IF(${col}2=\"{fondos}\",\"-\",IF(${col}2=\"{cbsa}\",CBSA_Departments,\"\"))".format(
+                col=area_col, fondos=AREA_FONDOS, cbsa=AREA_CBSA
+            )
+            dv_dept = DataValidation(type="list", formula1=dept_formula, allow_blank=True)
+            ws.add_data_validation(dv_dept)
+            dv_dept.add(dept_range)
+        else:
+            log("Aviso: la lista de departamentos CBSA está vacía; no se creó la validación de datos para 'Departamento'.")
+
     log(f"Listo. Archivo generado: {out_path}")
 
 if __name__ == "__main__":
