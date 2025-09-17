@@ -1,16 +1,10 @@
 from datetime import datetime
 from pathlib import Path
 import sys
-import types
 
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-pd_stub = types.ModuleType("pandas")
-pd_stub.DataFrame = lambda *args, **kwargs: None
-pd_stub.to_excel = lambda *args, **kwargs: None
-sys.modules.setdefault("pandas", pd_stub)
 
 from tickets_parser import parse_pdf_timestamp
 

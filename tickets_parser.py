@@ -259,7 +259,7 @@ def parse_header_block(cleaned: str, lines: List[str]) -> Dict[str,str]:
 def parse_pdf(pdf_path: str, tz: ZoneInfo, now: datetime) -> Dict[str,str]:
     raw = extract_text(pdf_path)
     if not raw or len(raw) < 80:
-        return {"N° Ticket":"","Título del ticket":"","Estado":"","Prioridad":"","Departamento":"","Fecha de creación":"","Última respuesta por":"","Última respuesta el":"","Error":"no_text_extracted"}
+        return {"N° Ticket":"","Título del ticket":"","Estado BW":"","Prioridad":"","Departamento":"","Fecha de creación":"","Última respuesta por":"","Última respuesta el":"","Error":"no_text_extracted"}
     cleaned = clean_text(raw)
     lines = cleaned.splitlines()
     hdr = parse_header_block(cleaned, lines)
@@ -283,7 +283,7 @@ def parse_pdf(pdf_path: str, tz: ZoneInfo, now: datetime) -> Dict[str,str]:
     return {
         "N° Ticket": hdr.get("Ticket Number",""),
         "Título del ticket": title,
-        "Estado": hdr.get("Status",""),
+        "Estado BW": hdr.get("Status",""),
         "Prioridad": hdr.get("Priority",""),
         "Departamento": hdr.get("Department",""),
         "Fecha de creación": hdr.get("Create Date",""),
@@ -318,6 +318,14 @@ def main():
 
     df = pd.DataFrame(rows)
 
+    rename_map = {}
+    if "N° Ticket" in df.columns:
+        rename_map["N° Ticket"] = "N Ticket"
+    if "Estado" in df.columns:
+        rename_map["Estado"] = "Estado BW"
+    if rename_map:
+        df = df.rename(columns=rename_map)
+
     if "Área" not in df.columns:
         df["Área"] = ""
     else:
@@ -341,10 +349,18 @@ def main():
 
     df["Departamento"] = df.apply(normalize_department, axis=1)
 
-    if "Área" in df.columns and "Departamento" in df.columns:
-        cols = list(df.columns)
-        cols.insert(cols.index("Departamento"), cols.pop(cols.index("Área")))
-        df = df.loc[:, cols]
+    desired_order = [
+        "N Ticket",
+        "Título del ticket",
+        "Autor",
+        "Estado BW",
+        "Prioridad",
+        "Área",
+        "Departamento",
+    ]
+    leading_cols = [col for col in desired_order if col in df.columns]
+    remaining_cols = [col for col in df.columns if col not in leading_cols]
+    df = df.loc[:, leading_cols + remaining_cols]
 
     def human_delta(td_seconds: Optional[float]) -> str:
         if td_seconds is None: return ""
@@ -363,7 +379,7 @@ def main():
     df["Tiempo parado desde la última respuesta"] = df["Última respuesta el"].apply(lambda s: human_delta((now - parse_date(s)).total_seconds() if parse_date(s) else None))
 
     def compute_open_age(row):
-        st = row.get("Estado","")
+        st = row.get("Estado BW","")
         cd = parse_date(row.get("Fecha de creación",""))
         if cd and is_open_status(st):
             return human_delta((now - cd).total_seconds())
