@@ -24,9 +24,17 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 from glob import glob
-from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.datavalidation import DataValidation
-from openpyxl.workbook.defined_name import DefinedName
+
+try:
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.datavalidation import DataValidation
+    from openpyxl.workbook.defined_name import DefinedName
+    HAS_OPENPYXL = True
+except Exception:
+    HAS_OPENPYXL = False
+    get_column_letter = None  # type: ignore[assignment]
+    DataValidation = None  # type: ignore[assignment]
+    DefinedName = None  # type: ignore[assignment]
 
 CBSA_DEPARTMENTS: List[str] = [
     "Atención al Cliente",
@@ -251,18 +259,7 @@ def parse_header_block(cleaned: str, lines: List[str]) -> Dict[str,str]:
 def parse_pdf(pdf_path: str, tz: ZoneInfo, now: datetime) -> Dict[str,str]:
     raw = extract_text(pdf_path)
     if not raw or len(raw) < 80:
-        return {
-            "N° Ticket": "",
-            "Título del ticket": "",
-            "Estado": "",
-            "Prioridad": "",
-            "Área": "",
-            "Departamento": "",
-            "Fecha de creación": "",
-            "Última respuesta por": "",
-            "Última respuesta el": "",
-            "Error": "no_text_extracted",
-        }
+        return {"N° Ticket":"","Título del ticket":"","Estado":"","Prioridad":"","Departamento":"","Fecha de creación":"","Última respuesta por":"","Última respuesta el":"","Error":"no_text_extracted"}
     cleaned = clean_text(raw)
     lines = cleaned.splitlines()
     hdr = parse_header_block(cleaned, lines)
@@ -278,16 +275,15 @@ def parse_pdf(pdf_path: str, tz: ZoneInfo, now: datetime) -> Dict[str,str]:
         last_by = fallback_last_author_from_tail(cleaned)
 
     return {
-        "N° Ticket": hdr.get("Ticket Number", ""),
+        "N° Ticket": hdr.get("Ticket Number",""),
         "Título del ticket": title,
-        "Estado": hdr.get("Status", ""),
-        "Prioridad": hdr.get("Priority", ""),
-        "Área": "",
-        "Departamento": hdr.get("Department", ""),
-        "Fecha de creación": hdr.get("Create Date", ""),
+        "Estado": hdr.get("Status",""),
+        "Prioridad": hdr.get("Priority",""),
+        "Departamento": hdr.get("Department",""),
+        "Fecha de creación": hdr.get("Create Date",""),
         "Última respuesta por": last_by,
         "Última respuesta el": last_at,
-        "Error": "",
+        "Error": ""
     }
 
 def main():
@@ -338,6 +334,11 @@ def main():
 
     df["Departamento"] = df.apply(normalize_department, axis=1)
 
+    if "Área" in df.columns and "Departamento" in df.columns:
+        cols = list(df.columns)
+        cols.insert(cols.index("Departamento"), cols.pop(cols.index("Área")))
+        df = df.loc[:, cols]
+
     def human_delta(td_seconds: Optional[float]) -> str:
         if td_seconds is None: return ""
         secs = int(td_seconds)
@@ -364,6 +365,12 @@ def main():
 
     out_path = args.out
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+
+    if not HAS_OPENPYXL:
+        raise RuntimeError(
+            "Se requiere openpyxl para generar el Excel con listas desplegables. "
+            "Instalá openpyxl (pip install openpyxl) e intentá nuevamente."
+        )
 
     sheet_name = "Tickets"
     data_row_start = 2
