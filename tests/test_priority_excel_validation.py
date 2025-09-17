@@ -2,6 +2,10 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+import pytest
+
+pytest.importorskip("openpyxl")
+
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
