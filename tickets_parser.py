@@ -651,6 +651,25 @@ def main():
         if col in df.columns
     ]
 
+    def timedelta_to_excel_number(value):
+        if pd.isna(value):
+            return None
+        if isinstance(value, pd.Timedelta):
+            delta = value.to_pytimedelta()
+        elif isinstance(value, timedelta):
+            delta = value
+        else:
+            return None
+        total_seconds = delta.total_seconds()
+        if total_seconds < 0:
+            return None
+        return total_seconds / 86400.0
+
+    duration_fraction_values = {
+        col: [timedelta_to_excel_number(value) for value in df[col]]
+        for col in duration_columns
+    }
+
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
 
     if not HAS_OPENPYXL:
@@ -690,8 +709,20 @@ def main():
         for col_name in duration_columns:
             col_idx = df.columns.get_loc(col_name) + 1
             col_letter = get_column_letter(col_idx)
+            time_values = duration_fraction_values.get(col_name, [])
             for row_idx in range(data_row_start, last_data_row + 1):
-                ws[f"{col_letter}{row_idx}"].number_format = duration_number_format
+                cell = ws[f"{col_letter}{row_idx}"]
+                if (row_idx - data_row_start) < len(time_values):
+                    ws_value = time_values[row_idx - data_row_start]
+                    if ws_value is None:
+                        cell.value = None
+                    else:
+                        if isinstance(ws_value, (pd.Timedelta, timedelta)):
+                            ws_value = ws_value.total_seconds() / 86400.0
+                        cell.value = float(ws_value)
+                else:
+                    cell.value = None
+                cell.number_format = duration_number_format
 
         priority_formula = '"' + ",".join(PRIORITY_OPTIONS) + '"'
         dv_priority = DataValidation(type="list", formula1=priority_formula, allow_blank=True)

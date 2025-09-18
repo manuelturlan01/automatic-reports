@@ -4,6 +4,7 @@ import sys
 
 import openpyxl
 from openpyxl.utils import get_column_letter
+import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import tickets_parser
@@ -269,7 +270,13 @@ def test_dates_and_durations_are_written_with_native_types(tmp_path, monkeypatch
     assert wait_cell.number_format == "[h]:mm:ss"
     assert open_cell.number_format == "[h]:mm:ss"
 
-    assert wait_cell.value.total_seconds() == 2.5 * 3600
-    assert open_cell.value == timedelta(days=1, hours=4)
+    from openpyxl.utils.datetime import to_excel
+
+    assert to_excel(wait_cell.value) == pytest.approx((2 * 3600 + 30 * 60) / 86400)
+    assert to_excel(open_cell.value) == pytest.approx((28 * 3600) / 86400)
+    assert "1899" not in str(wait_cell.value)
+    assert "1899" not in str(open_cell.value)
+    assert "/" not in wait_cell.number_format
+    assert "/" not in open_cell.number_format
 
     workbook.close()
