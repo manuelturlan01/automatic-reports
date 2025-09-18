@@ -269,8 +269,8 @@ def test_dates_are_native_and_durations_are_text(tmp_path, monkeypatch):
     assert wait_cell.number_format == "@"
     assert open_cell.number_format == "@"
 
-    assert wait_cell.value == "02:30:00"
-    assert open_cell.value == "28:00:00"
+    assert wait_cell.value == "0.02:30:00"
+    assert open_cell.value == "1.04:00:00"
 
     workbook.close()
 
@@ -384,6 +384,6 @@ def test_existing_duration_values_are_preserved_and_normalized(tmp_path, monkeyp
 
     workbook.close()
 
-    assert results["123"] == ("448:00:00", "@", "123:00:00", "@")
-    assert results["456"] == ("36:00:00", "@", "10:00:00", "@")
+    assert results["123"] == ("18.16:00:00", "@", "5.03:00:00", "@")
+    assert results["456"] == ("1.12:00:00", "@", "0.10:00:00", "@")
     assert "789" in results
