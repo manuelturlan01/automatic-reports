@@ -665,10 +665,35 @@ def main():
             return None
         return total_seconds / 86400.0
 
+    def timedelta_to_total_seconds(value):
+        if pd.isna(value):
+            return None
+        if isinstance(value, pd.Timedelta):
+            delta = value.to_pytimedelta()
+        elif isinstance(value, timedelta):
+            delta = value
+        else:
+            return None
+        total_seconds = delta.total_seconds()
+        if total_seconds < 0:
+            return None
+        return int(round(total_seconds))
+
     duration_fraction_values = {
         col: [timedelta_to_excel_number(value) for value in df[col]]
         for col in duration_columns
     }
+
+    duration_seconds_suffix = " (segundos)"
+    duration_seconds_values = {}
+    for col in duration_columns:
+        seconds_col = f"{col}{duration_seconds_suffix}"
+        seconds_values = [
+            timedelta_to_total_seconds(value)
+            for value in df[col]
+        ]
+        duration_seconds_values[seconds_col] = seconds_values
+        df[seconds_col] = seconds_values
 
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
 
@@ -699,6 +724,7 @@ def main():
         last_data_row = len(df) + 1
         date_number_format = "yyyy-mm-dd hh:mm:ss"
         duration_number_format = "[h]:mm:ss"
+        seconds_number_format = "0"
 
         for col_name in datetime_columns:
             col_idx = df.columns.get_loc(col_name) + 1
@@ -723,6 +749,23 @@ def main():
                 else:
                     cell.value = None
                 cell.number_format = duration_number_format
+
+        for col_name, seconds_values in duration_seconds_values.items():
+            if col_name not in df.columns:
+                continue
+            col_idx = df.columns.get_loc(col_name) + 1
+            col_letter = get_column_letter(col_idx)
+            for row_idx in range(data_row_start, last_data_row + 1):
+                cell = ws[f"{col_letter}{row_idx}"]
+                if (row_idx - data_row_start) < len(seconds_values):
+                    seconds_value = seconds_values[row_idx - data_row_start]
+                    if seconds_value is None:
+                        cell.value = None
+                    else:
+                        cell.value = int(seconds_value)
+                else:
+                    cell.value = None
+                cell.number_format = seconds_number_format
 
         priority_formula = '"' + ",".join(PRIORITY_OPTIONS) + '"'
         dv_priority = DataValidation(type="list", formula1=priority_formula, allow_blank=True)

@@ -254,11 +254,19 @@ def test_dates_and_durations_are_written_with_native_types(tmp_path, monkeypatch
     last_response_idx = headers.index("Última respuesta el") + 1
     wait_idx = headers.index("Tiempo parado desde la última respuesta") + 1
     open_idx = headers.index("Tiempo abierto (si sigue abierto)") + 1
+    wait_seconds_idx = (
+        headers.index("Tiempo parado desde la última respuesta (segundos)") + 1
+    )
+    open_seconds_idx = (
+        headers.index("Tiempo abierto (si sigue abierto) (segundos)") + 1
+    )
 
     creation_cell = worksheet.cell(row=2, column=creation_idx)
     last_response_cell = worksheet.cell(row=2, column=last_response_idx)
     wait_cell = worksheet.cell(row=2, column=wait_idx)
     open_cell = worksheet.cell(row=2, column=open_idx)
+    wait_seconds_cell = worksheet.cell(row=2, column=wait_seconds_idx)
+    open_seconds_cell = worksheet.cell(row=2, column=open_seconds_idx)
 
     assert isinstance(creation_cell.value, datetime)
     assert isinstance(last_response_cell.value, datetime)
@@ -270,6 +278,11 @@ def test_dates_and_durations_are_written_with_native_types(tmp_path, monkeypatch
     assert wait_cell.number_format == "[h]:mm:ss"
     assert open_cell.number_format == "[h]:mm:ss"
 
+    assert isinstance(wait_seconds_cell.value, (int, float))
+    assert isinstance(open_seconds_cell.value, (int, float))
+    assert wait_seconds_cell.number_format == "0"
+    assert open_seconds_cell.number_format == "0"
+
     from openpyxl.utils.datetime import to_excel
 
     assert to_excel(wait_cell.value) == pytest.approx((2 * 3600 + 30 * 60) / 86400)
@@ -278,5 +291,8 @@ def test_dates_and_durations_are_written_with_native_types(tmp_path, monkeypatch
     assert "1899" not in str(open_cell.value)
     assert "/" not in wait_cell.number_format
     assert "/" not in open_cell.number_format
+
+    assert wait_seconds_cell.value == pytest.approx(2 * 3600 + 30 * 60)
+    assert open_seconds_cell.value == pytest.approx(28 * 3600)
 
     workbook.close()
