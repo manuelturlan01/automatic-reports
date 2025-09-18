@@ -673,10 +673,14 @@ def main():
     def format_total_seconds(total_seconds: Optional[int]) -> Optional[str]:
         if total_seconds is None or total_seconds <= 0:
             return None
-        hours, remainder = divmod(total_seconds, 3600)
+        days, remainder = divmod(total_seconds, 86400)
+        hours, remainder = divmod(remainder, 3600)
         minutes, seconds = divmod(remainder, 60)
-        hours_str = str(hours).zfill(2)
-        return f"{hours_str}:{minutes:02d}:{seconds:02d}"
+        return f"{days}.{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+    days_hours_pattern = re.compile(
+        r"^(?P<days>\d+)\.(?P<hours>\d{2}):(?P<minutes>\d{2}):(?P<seconds>\d{2})$"
+    )
 
     def timedelta_to_text(value):
         if value is None:
@@ -720,6 +724,16 @@ def main():
             lower = text.lower()
             if lower in {"nat", "nan"}:
                 return None
+            match = days_hours_pattern.match(text)
+            if match:
+                days = int(match.group("days"))
+                hours = int(match.group("hours"))
+                minutes = int(match.group("minutes"))
+                seconds = int(match.group("seconds"))
+                total_seconds = (
+                    days * 86400 + hours * 3600 + minutes * 60 + seconds
+                )
+                return format_total_seconds(total_seconds)
             parts = [part.strip() for part in text.split(":")]
             if 2 <= len(parts) <= 3 and all(part.isdigit() for part in parts):
                 hours = int(parts[0])
