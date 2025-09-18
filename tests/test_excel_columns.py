@@ -1,9 +1,10 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 import sys
 
 import openpyxl
 from openpyxl.utils import get_column_letter
+import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import tickets_parser
@@ -253,23 +254,43 @@ def test_dates_and_durations_are_written_with_native_types(tmp_path, monkeypatch
     last_response_idx = headers.index("Última respuesta el") + 1
     wait_idx = headers.index("Tiempo parado desde la última respuesta") + 1
     open_idx = headers.index("Tiempo abierto (si sigue abierto)") + 1
+    wait_seconds_idx = (
+        headers.index("Tiempo parado desde la última respuesta (segundos)") + 1
+    )
+    open_seconds_idx = (
+        headers.index("Tiempo abierto (si sigue abierto) (segundos)") + 1
+    )
 
     creation_cell = worksheet.cell(row=2, column=creation_idx)
     last_response_cell = worksheet.cell(row=2, column=last_response_idx)
     wait_cell = worksheet.cell(row=2, column=wait_idx)
     open_cell = worksheet.cell(row=2, column=open_idx)
+    wait_seconds_cell = worksheet.cell(row=2, column=wait_seconds_idx)
+    open_seconds_cell = worksheet.cell(row=2, column=open_seconds_idx)
 
     assert isinstance(creation_cell.value, datetime)
     assert isinstance(last_response_cell.value, datetime)
     assert creation_cell.number_format == "yyyy-mm-dd hh:mm:ss"
     assert last_response_cell.number_format == "yyyy-mm-dd hh:mm:ss"
 
-    assert isinstance(wait_cell.value, timedelta)
-    assert isinstance(open_cell.value, timedelta)
-    assert wait_cell.number_format == "[h]:mm:ss"
-    assert open_cell.number_format == "[h]:mm:ss"
+    assert isinstance(wait_cell.value, str)
+    assert isinstance(open_cell.value, str)
+    assert wait_cell.value == "02:30:00"
+    assert open_cell.value == "28:00:00"
+    assert wait_cell.number_format == "@"
+    assert open_cell.number_format == "@"
 
-    assert wait_cell.value.total_seconds() == 2.5 * 3600
-    assert open_cell.value == timedelta(days=1, hours=4)
+    assert isinstance(wait_seconds_cell.value, (int, float))
+    assert isinstance(open_seconds_cell.value, (int, float))
+    assert wait_seconds_cell.number_format == "0"
+    assert open_seconds_cell.number_format == "0"
+
+    assert "1899" not in wait_cell.value
+    assert "1899" not in open_cell.value
+    assert "/" not in wait_cell.value
+    assert "/" not in open_cell.value
+
+    assert wait_seconds_cell.value == pytest.approx(2 * 3600 + 30 * 60)
+    assert open_seconds_cell.value == pytest.approx(28 * 3600)
 
     workbook.close()
