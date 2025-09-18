@@ -651,7 +651,7 @@ def main():
         if col in df.columns
     ]
 
-    def timedelta_to_excel_time(value):
+    def timedelta_to_text(value):
         if pd.isna(value):
             return None
         if isinstance(value, pd.Timedelta):
@@ -662,10 +662,14 @@ def main():
             return None
         if delta <= timedelta(0):
             return None
-        return delta.total_seconds() / 86400
+        total_seconds = int(round(delta.total_seconds()))
+        days, remainder = divmod(total_seconds, 86400)
+        hours, remainder = divmod(remainder, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{days}.{hours:02d}:{minutes:02d}:{seconds:02d}"
 
-    duration_time_values = {
-        col: [timedelta_to_excel_time(value) for value in df[col]]
+    duration_text_values = {
+        col: [timedelta_to_text(value) for value in df[col]]
         for col in duration_columns
     }
 
@@ -697,7 +701,7 @@ def main():
 
         last_data_row = len(df) + 1
         date_number_format = "yyyy-mm-dd hh:mm:ss"
-        duration_number_format = "[h]:mm:ss"
+        duration_number_format = "@"
 
         for col_name in datetime_columns:
             col_idx = df.columns.get_loc(col_name) + 1
@@ -708,13 +712,15 @@ def main():
         for col_name in duration_columns:
             col_idx = df.columns.get_loc(col_name) + 1
             col_letter = get_column_letter(col_idx)
-            time_values = duration_time_values.get(col_name, [])
+            text_values = duration_text_values.get(col_name, [])
             for row_idx in range(data_row_start, last_data_row + 1):
-                if (row_idx - data_row_start) < len(time_values):
-                    excel_value = time_values[row_idx - data_row_start]
-                    if excel_value is not None:
-                        ws[f"{col_letter}{row_idx}"].value = excel_value
-                ws[f"{col_letter}{row_idx}"].number_format = duration_number_format
+                cell = ws[f"{col_letter}{row_idx}"]
+                if (row_idx - data_row_start) < len(text_values):
+                    text_value = text_values[row_idx - data_row_start]
+                    cell.value = text_value if text_value is not None else None
+                else:
+                    cell.value = None
+                cell.number_format = duration_number_format
 
         priority_formula = '"' + ",".join(PRIORITY_OPTIONS) + '"'
         dv_priority = DataValidation(type="list", formula1=priority_formula, allow_blank=True)

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 import sys
 
@@ -204,7 +204,7 @@ def test_reprocess_preserves_manual_columns_and_appends_new(tmp_path, monkeypatc
     workbook.close()
 
 
-def test_dates_and_durations_are_written_with_native_types(tmp_path, monkeypatch):
+def test_dates_are_native_and_durations_are_text(tmp_path, monkeypatch):
     output_path = tmp_path / "Tickets.xlsx"
     pdf_path = tmp_path / "Ticket-0001.pdf"
     pdf_path.write_bytes(b"")
@@ -222,7 +222,7 @@ def test_dates_and_durations_are_written_with_native_types(tmp_path, monkeypatch
             "Estado BW": "Abierto",
             "Prioridad": "Media",
             "Departamento": "IT",
-            "Fecha de creación": "09/01/2024 08:00",
+            "Fecha de creación": "08/01/2024 06:23:58",
             "Autor": "Eve",
             "Última respuesta por": "Frank",
             "Última respuesta el": "10/01/2024 09:30",
@@ -264,16 +264,12 @@ def test_dates_and_durations_are_written_with_native_types(tmp_path, monkeypatch
     assert creation_cell.number_format == "yyyy-mm-dd hh:mm:ss"
     assert last_response_cell.number_format == "yyyy-mm-dd hh:mm:ss"
 
-    assert isinstance(wait_cell.value, timedelta)
-    assert isinstance(open_cell.value, timedelta)
-    assert wait_cell.number_format == "[h]:mm:ss"
-    assert open_cell.number_format == "[h]:mm:ss"
+    assert isinstance(wait_cell.value, str)
+    assert isinstance(open_cell.value, str)
+    assert wait_cell.number_format == "@"
+    assert open_cell.number_format == "@"
 
-    assert wait_cell.value == timedelta(hours=2, minutes=30)
-    assert open_cell.value == timedelta(hours=28)
-    assert "1899" not in str(wait_cell.value)
-    assert "1899" not in str(open_cell.value)
-    assert "/" not in wait_cell.number_format
-    assert "/" not in open_cell.number_format
+    assert wait_cell.value == "0.02:30:00"
+    assert open_cell.value == "2.05:36:02"
 
     workbook.close()
