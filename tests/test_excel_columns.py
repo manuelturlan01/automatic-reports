@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, time as dt_time
 from pathlib import Path
 import sys
 
@@ -273,3 +273,117 @@ def test_dates_are_native_and_durations_are_text(tmp_path, monkeypatch):
     assert open_cell.value == "28:00:00"
 
     workbook.close()
+
+
+def test_existing_duration_values_are_preserved_and_normalized(tmp_path, monkeypatch):
+    output_path = tmp_path / "Tickets.xlsx"
+    pdf_path = tmp_path / "Ticket-0003.pdf"
+    pdf_path.write_bytes(b"")
+
+    headers = [
+        "N Ticket",
+        "Título del ticket",
+        "Autor",
+        "Prioridad",
+        "Área",
+        "Departamento",
+        "Fecha de creación",
+        "Última respuesta por",
+        "Última respuesta el",
+        "Tiempo parado desde la última respuesta",
+        "Tiempo abierto (si sigue abierto)",
+    ]
+
+    workbook = openpyxl.Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Tickets"
+    worksheet.append(headers)
+    worksheet.append(
+        [
+            "123",
+            "Antiguo 1",
+            "Alice",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "18d 16h",
+            "5d 3h",
+        ]
+    )
+    worksheet.append(
+        [
+            "456",
+            "Antiguo 2",
+            "Bob",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            1.5,
+            dt_time(10, 0),
+        ]
+    )
+    workbook.save(output_path)
+    workbook.close()
+
+    monkeypatch.setattr(tickets_parser, "glob", lambda pattern: [str(pdf_path)])
+
+    def fake_parse_pdf(path, tz, now):
+        assert path == str(pdf_path)
+        return {
+            "N° Ticket": "789",
+            "Título del ticket": "Nuevo",
+            "Estado BW": "Abierto",
+            "Prioridad": "Alta",
+            "Departamento": "IT",
+            "Fecha de creación": "08/20/2025 08:00 AM",
+            "Autor": "Carol",
+            "Última respuesta por": "Dave",
+            "Última respuesta el": "",
+        }
+
+    monkeypatch.setattr(tickets_parser, "parse_pdf", fake_parse_pdf)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "tickets_parser.py",
+            "--pdf_dir",
+            str(tmp_path),
+            "--out",
+            str(output_path),
+        ],
+    )
+
+    tickets_parser.main()
+
+    workbook = openpyxl.load_workbook(output_path)
+    worksheet = workbook["Tickets"]
+
+    headers = [cell.value for cell in next(worksheet.iter_rows(min_row=1, max_row=1))]
+    wait_idx = headers.index("Tiempo parado desde la última respuesta") + 1
+    open_idx = headers.index("Tiempo abierto (si sigue abierto)") + 1
+
+    results = {}
+    for row in worksheet.iter_rows(min_row=2):
+        ticket = row[0].value
+        wait_cell = row[wait_idx - 1]
+        open_cell = row[open_idx - 1]
+        results[ticket] = (
+            wait_cell.value,
+            wait_cell.number_format,
+            open_cell.value,
+            open_cell.number_format,
+        )
+
+    workbook.close()
+
+    assert results["123"] == ("448:00:00", "@", "123:00:00", "@")
+    assert results["456"] == ("36:00:00", "@", "10:00:00", "@")
+    assert "789" in results
