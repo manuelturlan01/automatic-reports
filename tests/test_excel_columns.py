@@ -135,6 +135,74 @@ def test_reprocess_preserves_manual_columns_and_appends_new(tmp_path, monkeypatc
     workbook.save(output_path)
     workbook.close()
 
+    def parse_second(path, tz, now):
+        assert path in {str(pdf_one), str(pdf_two)}
+        if path == str(pdf_one):
+            return {
+                "N° Ticket": "123",
+                "Título del ticket": "Actualizado",
+                "Estado BW": "Cerrado",
+                "Prioridad": "Alta",
+                "Departamento": "IT",
+                "Fecha de creación": "",
+                "Autor": "Alice",
+                "Última respuesta por": "Bob",
+                "Última respuesta el": "",
+            }
+        return {
+            "N° Ticket": "456",
+            "Título del ticket": "Nuevo",
+            "Estado BW": "Abierto",
+            "Prioridad": "Media",
+            "Departamento": "Operaciones",
+            "Fecha de creación": "",
+            "Autor": "Carol",
+            "Última respuesta por": "Dave",
+            "Última respuesta el": "",
+        }
+
+    monkeypatch.setattr(
+        tickets_parser,
+        "glob",
+        lambda pattern: [str(pdf_one), str(pdf_two)],
+    )
+    monkeypatch.setattr(tickets_parser, "parse_pdf", parse_second)
+
+    tickets_parser.main()
+
+    workbook = openpyxl.load_workbook(output_path)
+    worksheet = workbook["Tickets"]
+    headers = [cell.value for cell in next(worksheet.iter_rows(min_row=1, max_row=1))]
+
+    ticket_idx = headers.index("N Ticket") + 1
+    title_idx = headers.index("Título del ticket") + 1
+
+    rows = list(worksheet.iter_rows(min_row=2, values_only=True))
+    row_by_ticket = {}
+    for row in rows:
+        ticket = row[ticket_idx - 1]
+        if ticket:
+            row_by_ticket.setdefault(ticket, []).append(row)
+
+    assert "123" in row_by_ticket
+    assert len(row_by_ticket["123"]) == 1
+
+    ticket_123 = row_by_ticket["123"][0]
+    assert ticket_123[title_idx - 1] == "Actualizado"
+    assert ticket_123[priority_idx - 1] == "Manual Prioridad"
+    assert ticket_123[area_idx - 1] == "Área Manual"
+    assert ticket_123[dept_idx - 1] == "Departamento Manual"
+
+    assert "456" in row_by_ticket
+    assert len(row_by_ticket["456"]) == 1
+
+    ticket_456 = row_by_ticket["456"][0]
+    assert ticket_456[priority_idx - 1] in (None, "")
+    assert ticket_456[area_idx - 1] in (None, "")
+    assert ticket_456[dept_idx - 1] in (None, "")
+
+    workbook.close()
+
 
 def test_dates_and_durations_are_written_with_native_types(tmp_path, monkeypatch):
     output_path = tmp_path / "Tickets.xlsx"
