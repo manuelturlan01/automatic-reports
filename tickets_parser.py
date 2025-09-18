@@ -20,7 +20,7 @@ Requisitos:
 """
 import os, re, sys, argparse, time, unicodedata
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time as dt_time
 from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 from glob import glob
@@ -651,6 +651,31 @@ def main():
         if col in df.columns
     ]
 
+    def timedelta_to_time(value):
+        if pd.isna(value):
+            return None
+        if isinstance(value, pd.Timedelta):
+            delta = value.to_pytimedelta()
+        elif isinstance(value, timedelta):
+            delta = value
+        else:
+            return None
+        if delta < timedelta(0):
+            return None
+        total_seconds = delta.days * 86400 + delta.seconds
+        microseconds = delta.microseconds
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        seconds = total_seconds % 60
+        if hours >= 24:
+            hours = hours % 24
+        return dt_time(hour=hours, minute=minutes, second=seconds, microsecond=microseconds)
+
+    duration_time_values = {
+        col: [timedelta_to_time(value) for value in df[col]]
+        for col in duration_columns
+    }
+
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
 
     if not HAS_OPENPYXL:
@@ -679,7 +704,7 @@ def main():
 
         last_data_row = len(df) + 1
         date_number_format = "yyyy-mm-dd hh:mm:ss"
-        duration_number_format = "[h]:mm:ss"
+        duration_number_format = "hh:mm:ss"
 
         for col_name in datetime_columns:
             col_idx = df.columns.get_loc(col_name) + 1
@@ -690,7 +715,10 @@ def main():
         for col_name in duration_columns:
             col_idx = df.columns.get_loc(col_name) + 1
             col_letter = get_column_letter(col_idx)
+            time_values = duration_time_values.get(col_name, [])
             for row_idx in range(data_row_start, last_data_row + 1):
+                if (row_idx - data_row_start) < len(time_values):
+                    ws[f"{col_letter}{row_idx}"].value = time_values[row_idx - data_row_start]
                 ws[f"{col_letter}{row_idx}"].number_format = duration_number_format
 
         priority_formula = '"' + ",".join(PRIORITY_OPTIONS) + '"'
