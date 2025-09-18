@@ -1,4 +1,4 @@
-from datetime import datetime, time
+from datetime import datetime, timedelta
 from pathlib import Path
 import sys
 
@@ -264,13 +264,13 @@ def test_dates_and_durations_are_written_with_native_types(tmp_path, monkeypatch
     assert creation_cell.number_format == "yyyy-mm-dd hh:mm:ss"
     assert last_response_cell.number_format == "yyyy-mm-dd hh:mm:ss"
 
-    assert isinstance(wait_cell.value, time)
-    assert isinstance(open_cell.value, time)
-    assert wait_cell.number_format == "hh:mm:ss"
-    assert open_cell.number_format == "hh:mm:ss"
+    assert isinstance(wait_cell.value, timedelta)
+    assert isinstance(open_cell.value, timedelta)
+    assert wait_cell.number_format == "[h]:mm:ss"
+    assert open_cell.number_format == "[h]:mm:ss"
 
-    assert wait_cell.value.strftime("%H:%M:%S") == "02:30:00"
-    assert open_cell.value.strftime("%H:%M:%S") == "04:00:00"
+    assert wait_cell.value == timedelta(hours=2, minutes=30)
+    assert open_cell.value == timedelta(hours=28)
     assert "1899" not in str(wait_cell.value)
     assert "1899" not in str(open_cell.value)
     assert "/" not in wait_cell.number_format

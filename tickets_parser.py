@@ -651,7 +651,7 @@ def main():
         if col in df.columns
     ]
 
-    def timedelta_to_time(value):
+    def timedelta_to_excel_time(value):
         if pd.isna(value):
             return None
         if isinstance(value, pd.Timedelta):
@@ -660,19 +660,12 @@ def main():
             delta = value
         else:
             return None
-        if delta < timedelta(0):
+        if delta <= timedelta(0):
             return None
-        total_seconds = delta.days * 86400 + delta.seconds
-        microseconds = delta.microseconds
-        hours = total_seconds // 3600
-        minutes = (total_seconds % 3600) // 60
-        seconds = total_seconds % 60
-        if hours >= 24:
-            hours = hours % 24
-        return dt_time(hour=hours, minute=minutes, second=seconds, microsecond=microseconds)
+        return delta.total_seconds() / 86400
 
     duration_time_values = {
-        col: [timedelta_to_time(value) for value in df[col]]
+        col: [timedelta_to_excel_time(value) for value in df[col]]
         for col in duration_columns
     }
 
@@ -704,7 +697,7 @@ def main():
 
         last_data_row = len(df) + 1
         date_number_format = "yyyy-mm-dd hh:mm:ss"
-        duration_number_format = "hh:mm:ss"
+        duration_number_format = "[h]:mm:ss"
 
         for col_name in datetime_columns:
             col_idx = df.columns.get_loc(col_name) + 1
@@ -718,7 +711,9 @@ def main():
             time_values = duration_time_values.get(col_name, [])
             for row_idx in range(data_row_start, last_data_row + 1):
                 if (row_idx - data_row_start) < len(time_values):
-                    ws[f"{col_letter}{row_idx}"].value = time_values[row_idx - data_row_start]
+                    excel_value = time_values[row_idx - data_row_start]
+                    if excel_value is not None:
+                        ws[f"{col_letter}{row_idx}"].value = excel_value
                 ws[f"{col_letter}{row_idx}"].number_format = duration_number_format
 
         priority_formula = '"' + ",".join(PRIORITY_OPTIONS) + '"'
