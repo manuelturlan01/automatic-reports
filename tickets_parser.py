@@ -651,20 +651,6 @@ def main():
         if col in df.columns
     ]
 
-    def timedelta_to_excel_number(value):
-        if pd.isna(value):
-            return None
-        if isinstance(value, pd.Timedelta):
-            delta = value.to_pytimedelta()
-        elif isinstance(value, timedelta):
-            delta = value
-        else:
-            return None
-        total_seconds = delta.total_seconds()
-        if total_seconds < 0:
-            return None
-        return total_seconds / 86400.0
-
     def timedelta_to_total_seconds(value):
         if pd.isna(value):
             return None
@@ -679,21 +665,35 @@ def main():
             return None
         return int(round(total_seconds))
 
-    duration_fraction_values = {
-        col: [timedelta_to_excel_number(value) for value in df[col]]
-        for col in duration_columns
-    }
-
     duration_seconds_suffix = " (segundos)"
     duration_seconds_values = {}
+    duration_display_values = {}
     for col in duration_columns:
-        seconds_col = f"{col}{duration_seconds_suffix}"
+        original_values = list(df[col])
         seconds_values = [
             timedelta_to_total_seconds(value)
-            for value in df[col]
+            for value in original_values
         ]
-        duration_seconds_values[seconds_col] = seconds_values
-        df[seconds_col] = seconds_values
+        display_values = []
+        for seconds_value in seconds_values:
+            if seconds_value is None:
+                display_values.append("")
+            else:
+                hours, remainder = divmod(int(seconds_value), 3600)
+                minutes, seconds = divmod(remainder, 60)
+                display_values.append(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
+
+        seconds_series = pd.Series(
+            [pd.NA if value is None else int(value) for value in seconds_values],
+            dtype="Int64",
+        )
+
+        seconds_col = f"{col}{duration_seconds_suffix}"
+        duration_seconds_values[seconds_col] = list(seconds_series)
+        duration_display_values[col] = display_values
+
+        df[col] = display_values
+        df[seconds_col] = seconds_series
 
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
 
@@ -723,7 +723,7 @@ def main():
 
         last_data_row = len(df) + 1
         date_number_format = "yyyy-mm-dd hh:mm:ss"
-        duration_number_format = "[h]:mm:ss"
+        duration_number_format = "@"
         seconds_number_format = "0"
 
         for col_name in datetime_columns:
@@ -735,17 +735,12 @@ def main():
         for col_name in duration_columns:
             col_idx = df.columns.get_loc(col_name) + 1
             col_letter = get_column_letter(col_idx)
-            time_values = duration_fraction_values.get(col_name, [])
+            display_values = duration_display_values.get(col_name, [])
             for row_idx in range(data_row_start, last_data_row + 1):
                 cell = ws[f"{col_letter}{row_idx}"]
-                if (row_idx - data_row_start) < len(time_values):
-                    ws_value = time_values[row_idx - data_row_start]
-                    if ws_value is None:
-                        cell.value = None
-                    else:
-                        if isinstance(ws_value, (pd.Timedelta, timedelta)):
-                            ws_value = ws_value.total_seconds() / 86400.0
-                        cell.value = float(ws_value)
+                if (row_idx - data_row_start) < len(display_values):
+                    value = display_values[row_idx - data_row_start]
+                    cell.value = value or ""
                 else:
                     cell.value = None
                 cell.number_format = duration_number_format
@@ -759,7 +754,7 @@ def main():
                 cell = ws[f"{col_letter}{row_idx}"]
                 if (row_idx - data_row_start) < len(seconds_values):
                     seconds_value = seconds_values[row_idx - data_row_start]
-                    if seconds_value is None:
+                    if pd.isna(seconds_value):
                         cell.value = None
                     else:
                         cell.value = int(seconds_value)
