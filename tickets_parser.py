@@ -21,6 +21,7 @@ Requisitos:
 import os, re, sys, argparse, time, unicodedata
 import pandas as pd
 from datetime import datetime, timedelta, time as dt_time
+from numbers import Real
 from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 from glob import glob
@@ -550,6 +551,14 @@ def main():
 
     df = df.fillna("")
 
+    duration_column_candidates = [
+        "Tiempo parado desde la última respuesta",
+        "Tiempo abierto (si sigue abierto)",
+    ]
+    for col in duration_column_candidates:
+        if col not in df.columns:
+            df[col] = ""
+
     sheet_name = "Tickets"
 
     existing_df = None
@@ -597,6 +606,11 @@ def main():
 
     df = df.fillna("")
 
+    previous_duration_values: Dict[str, pd.Series] = {}
+    for col in duration_column_candidates:
+        if col in df.columns:
+            previous_duration_values[col] = df[col].copy()
+
     def to_local_naive_timestamp(value) -> pd.Timestamp:
         dt: Optional[datetime] = None
         if isinstance(value, pd.Timestamp):
@@ -628,6 +642,11 @@ def main():
         wait_deltas = now_timestamp - last_response_series
         wait_deltas = wait_deltas.where(last_response_series.notna(), pd.NaT)
         wait_deltas = wait_deltas.where(wait_deltas > zero_delta, pd.NaT)
+        previous_wait = previous_duration_values.get(
+            "Tiempo parado desde la última respuesta"
+        )
+        if previous_wait is not None:
+            wait_deltas = wait_deltas.where(wait_deltas.notna(), previous_wait)
         df["Tiempo parado desde la última respuesta"] = wait_deltas
 
     if "Fecha de creación" in df.columns:
@@ -640,33 +659,89 @@ def main():
         open_deltas = open_deltas.where(creation_series.notna(), pd.NaT)
         open_deltas = open_deltas.where(open_status_mask, pd.NaT)
         open_deltas = open_deltas.where(open_deltas > zero_delta, pd.NaT)
+        previous_open = previous_duration_values.get(
+            "Tiempo abierto (si sigue abierto)"
+        )
+        if previous_open is not None:
+            open_deltas = open_deltas.where(open_deltas.notna(), previous_open)
         df["Tiempo abierto (si sigue abierto)"] = open_deltas
 
-    duration_columns = [
-        col
-        for col in (
-            "Tiempo parado desde la última respuesta",
-            "Tiempo abierto (si sigue abierto)",
-        )
-        if col in df.columns
-    ]
+    duration_columns = [col for col in duration_column_candidates if col in df.columns]
 
-    def timedelta_to_text(value):
-        if pd.isna(value):
+    excel_epoch = datetime(1899, 12, 30)
+
+    def format_total_seconds(total_seconds: Optional[int]) -> Optional[str]:
+        if total_seconds is None or total_seconds <= 0:
             return None
-        if isinstance(value, pd.Timedelta):
-            delta = value.to_pytimedelta()
-        elif isinstance(value, timedelta):
-            delta = value
-        else:
-            return None
-        if delta <= timedelta(0):
-            return None
-        total_seconds = int(delta.total_seconds())
         hours, remainder = divmod(total_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         hours_str = str(hours).zfill(2)
         return f"{hours_str}:{minutes:02d}:{seconds:02d}"
+
+    def timedelta_to_text(value):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+        else:
+            try:
+                if pd.isna(value):
+                    return None
+            except Exception:
+                pass
+
+        if isinstance(value, pd.Timedelta):
+            delta_seconds = int(round(value.total_seconds()))
+            return format_total_seconds(delta_seconds)
+
+        if isinstance(value, timedelta):
+            delta_seconds = int(round(value.total_seconds()))
+            return format_total_seconds(delta_seconds)
+
+        if isinstance(value, dt_time):
+            total_seconds = value.hour * 3600 + value.minute * 60 + value.second
+            if value.microsecond:
+                total_seconds += int(round(value.microsecond / 1_000_000))
+            return format_total_seconds(total_seconds)
+
+        if isinstance(value, (pd.Timestamp, datetime)):
+            dt_val = value.to_pydatetime() if isinstance(value, pd.Timestamp) else value
+            delta_seconds = int(round((dt_val - excel_epoch).total_seconds()))
+            return format_total_seconds(delta_seconds)
+
+        if isinstance(value, Real) and not isinstance(value, bool):
+            total_seconds = int(round(float(value) * 86400))
+            return format_total_seconds(total_seconds)
+
+        if isinstance(value, str):
+            text = value.strip()
+            lower = text.lower()
+            if lower in {"nat", "nan"}:
+                return None
+            parts = [part.strip() for part in text.split(":")]
+            if 2 <= len(parts) <= 3 and all(part.isdigit() for part in parts):
+                hours = int(parts[0])
+                minutes = int(parts[1])
+                seconds = int(parts[2]) if len(parts) == 3 else 0
+                total_seconds = hours * 3600 + minutes * 60 + seconds
+                return format_total_seconds(total_seconds)
+            try:
+                delta = pd.to_timedelta(text)
+            except Exception:
+                return None
+            delta_seconds = int(round(delta.total_seconds()))
+            return format_total_seconds(delta_seconds)
+
+        try:
+            delta = pd.to_timedelta(value)
+        except Exception:
+            return None
+        if pd.isna(delta):
+            return None
+        delta_seconds = int(round(delta.total_seconds()))
+        return format_total_seconds(delta_seconds)
 
     duration_text_values = {
         col: [timedelta_to_text(value) for value in df[col]]
